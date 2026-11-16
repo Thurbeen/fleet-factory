@@ -1,0 +1,7 @@
+[global]
+exclude = [".git", ".agents", ".claude", "node_modules", "dist"]
+
+[MD013]
+line_length = 100
+tables = false
+code_blocks = false

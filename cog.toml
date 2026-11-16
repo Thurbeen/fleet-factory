@@ -1,0 +1,26 @@
+#:schema https://docs.cocogitto.io/cog-schema.json
+
+branch_whitelist = ["main"]
+ignore_merge_commits = true
+tag_prefix = "v"
+disable_bump_commit = true
+disable_changelog = true
+
+[commit_types]
+feat = { changelog_title = "Features", bump_minor = true, order = 0 }
+fix = { changelog_title = "Bug Fixes", bump_patch = true, order = 1 }
+perf = { changelog_title = "Performance Improvements", bump_patch = true, order = 2 }
+refactor = { changelog_title = "Refactoring", order = 3 }
+docs = { changelog_title = "Documentation", omit_from_changelog = false, order = 4 }
+style = { omit_from_changelog = true }
+test = { omit_from_changelog = true }
+chore = { omit_from_changelog = true }
+build = { changelog_title = "Build System", order = 5 }
+ci = { omit_from_changelog = true }
+revert = { changelog_title = "Reverts", order = 6 }
+
+[changelog]
+template = "remote"
+remote = "github.com"
+repository = "fleet-factory"
+owner = "Thurbeen"

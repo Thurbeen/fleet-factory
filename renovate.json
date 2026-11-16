@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "security:openssf-scorecard", "mergeConfidence:all-badges"],
+  "labels": ["dependencies"],
+  "minimumReleaseAge": "7 days",
+  "internalChecksFilter": "strict",
+  "osvVulnerabilityAlerts": true,
+  "semanticCommits": "enabled",
+  "semanticCommitType": "chore",
+  "semanticCommitScope": "deps",
+  "pre-commit": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "CI's actions, pinned by SHA with the version in a trailing comment.",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ]
+}
