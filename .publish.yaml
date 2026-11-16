@@ -1,0 +1,16 @@
+version: 1
+
+forge: github
+base: main
+
+review:
+  rules:
+    - AGENTS.md
+    - CONTRIBUTING.md
+
+gate:
+  - name: lint
+    run: prek run --all-files
+
+ci:
+  required: true
