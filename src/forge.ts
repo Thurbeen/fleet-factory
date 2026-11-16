@@ -26,7 +26,7 @@ async function fakeMerge(req: MergeRequest) {
   return { requested: true };
 }
 
-async function github(ref: ForgeRef, method: string, path: string, body: unknown): Promise<any> {
+async function github(ref: ForgeRef, method: string, path: string, body?: unknown): Promise<any> {
   const token = process.env[ref.tokenEnv ?? 'GITHUB_TOKEN'];
   if (!token) throw new Unknown(`${ref.tokenEnv ?? 'GITHUB_TOKEN'} is not set`);
   let res: Response;
@@ -38,7 +38,7 @@ async function github(ref: ForgeRef, method: string, path: string, body: unknown
         accept: 'application/vnd.github+json',
         'content-type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(10_000),
     });
   } catch (e) {
@@ -79,4 +79,50 @@ export async function autoMerge(ref: ForgeRef, req: MergeRequest) {
   if (ref.kind === 'fake') return fakeMerge(req);
   if (ref.kind === 'github') return githubMerge(ref, req);
   throw new Error(`no forge adapter ${ref.kind}`);
+}
+
+export type Guardrails = { allowAutoMerge: boolean; rules: { type: string; parameters?: any }[] };
+
+function repoOf(url: string) {
+  const m = /^https?:\/\/[^/]+\/([^/]+)\/([^/#]+?)(\.git)?\/?$/.exec(url);
+  if (!m) throw new Error(`not a repository URL: ${url}`);
+  return { owner: m[1], repo: m[2] };
+}
+
+export async function guardrails(ref: ForgeRef, url: string, branch: string): Promise<Guardrails> {
+  if (ref.kind === 'fake') {
+    const dir = process.env.FLEET_FACTORY_FAKE_DIR;
+    if (!dir) throw new Unknown('FLEET_FACTORY_FAKE_DIR is not set');
+    try {
+      return JSON.parse(readFileSync(join(dir, 'guardrails.json'), 'utf8'));
+    } catch {
+      throw new Unknown('fake guardrails unreadable');
+    }
+  }
+  if (ref.kind !== 'github') throw new Error(`no forge adapter ${ref.kind}`);
+  const { owner, repo } = repoOf(url);
+  const meta = await github(ref, 'GET', `/repos/${owner}/${repo}`);
+  const rules = await github(
+    ref,
+    'GET',
+    `/repos/${owner}/${repo}/rules/branches/${encodeURIComponent(branch)}`,
+  );
+  if (meta.status !== 200 || rules.status !== 200 || !Array.isArray(rules.body))
+    throw new Unknown(`GitHub answered ${meta.status}/${rules.status} for the branch rules`);
+  return { allowAutoMerge: !!meta.body.allow_auto_merge, rules: rules.body };
+}
+
+export function missingGuardrails(g: Guardrails): string[] {
+  const missing: string[] = [];
+  const pr = g.rules.filter((r) => r.type === 'pull_request').map((r) => r.parameters ?? {});
+  const checks = g.rules
+    .filter((r) => r.type === 'required_status_checks')
+    .flatMap((r) => r.parameters?.required_status_checks ?? []);
+  if (!pr.some((p) => Number(p.required_approving_review_count ?? 0) >= 1))
+    missing.push('a required approval');
+  if (!pr.some((p) => p.required_review_thread_resolution === true))
+    missing.push('required thread resolution');
+  if (!checks.length) missing.push('required status checks');
+  if (!g.allowAutoMerge) missing.push('auto-merge allowed');
+  return missing;
 }

@@ -1,3 +1,4 @@
+import { missingGuardrails } from './forge.ts';
 import {
   type J,
   LABEL_SOURCE,
@@ -22,6 +23,17 @@ export function probes(req: J): J[] {
       id: 'tickets',
       type: 'plugin',
       request: { op: 'list', board: boardRef(spec), label: spec.board.intakeLabel },
+    });
+  if (!('guardrails' in obs) && spec.build.taskConfig)
+    out.push({
+      id: 'guardrails',
+      type: 'plugin',
+      request: {
+        op: 'guardrails',
+        forge: spec.forge,
+        url: spec.repository.url,
+        branch: spec.repository.branch,
+      },
     });
   if (!('mine' in obs))
     out.push({
@@ -54,6 +66,28 @@ export function reconcile(req: J): J {
     status.conditions = [condition(st.conditions, 'Listed', 'Unknown', 'Unknown', why, now)];
     return { status, notBefore: now + 60_000 };
   }
+  status.guardrails = st.guardrails ?? null;
+  const guard = known(obs.guardrails);
+  if (guard.ok) {
+    const missing = missingGuardrails(guard.value);
+    status.guardrails = { ok: missing.length === 0, missing, checkedAt: now };
+  }
+  const guardedCondition = !spec.build.taskConfig
+    ? []
+    : [
+        guard.ok
+          ? condition(
+              st.conditions,
+              'Guarded',
+              status.guardrails.ok ? 'True' : 'False',
+              status.guardrails.ok ? 'Guarded' : 'Missing',
+              status.guardrails.missing.length
+                ? `missing: ${status.guardrails.missing.join(', ')}`
+                : '',
+              now,
+            )
+          : condition(st.conditions, 'Guarded', 'Unknown', 'Unknown', guard.why, now),
+      ];
   const tickets: J[] = listed.value ?? [];
   status.listedAt = now;
   status.tickets = Object.fromEntries(
@@ -61,6 +95,7 @@ export function reconcile(req: J): J {
   );
   status.conditions = [
     condition(st.conditions, 'Listed', 'True', 'Listed', `${tickets.length} tickets`, now),
+    ...guardedCondition,
   ];
   const existing = new Set((mine.value ?? []).map((o: J) => o.metadata.name));
   const creates = tickets
