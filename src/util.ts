@@ -40,8 +40,26 @@ export function sourceSpec(spec: J) {
       url: String(spec?.repository?.url ?? ''),
       branch: String(spec?.repository?.branch ?? 'main'),
     },
+    forge: {
+      kind: String(spec?.forge?.kind ?? 'github'),
+      tokenEnv: spec?.forge?.tokenEnv as string | undefined,
+      apiUrl: spec?.forge?.apiUrl as string | undefined,
+    },
     refine: { taskConfig: String(spec?.stages?.refine?.taskConfig ?? '') },
-    maxActive: { refine: Number(policy.maxActive?.refine ?? 3) },
+    build: {
+      taskConfig: spec?.stages?.build?.taskConfig as string | undefined,
+      readyPolicy: spec?.stages?.build?.readyPolicy as string | undefined,
+    },
+    approver: spec?.stages?.review?.approver as string | undefined,
+    buildGate: String(policy.buildGate ?? 'label'),
+    merge: {
+      method: String(spec?.merge?.method ?? 'squash'),
+      holdLabel: String(spec?.merge?.holdLabel ?? 'factory:hold'),
+    },
+    maxActive: {
+      refine: Number(policy.maxActive?.refine ?? 3),
+      build: Number(policy.maxActive?.build ?? 2),
+    },
     humanDecisions: (policy.humanDecisions ?? [
       'scope',
       'pricing',

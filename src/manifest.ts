@@ -1,4 +1,5 @@
 const str = { type: 'string', minLength: 1 };
+const LOCAL_OR_HTTPS = '^(https://|http://(127\\.0\\.0\\.1|localhost)(:[0-9]+)?(/|$))';
 
 const ticketSourceSpec = {
   type: 'object',
@@ -26,6 +27,16 @@ const ticketSourceSpec = {
       required: ['url'],
       properties: { url: { type: 'string', pattern: '^https://' }, branch: str },
     },
+    forge: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: {
+        kind: { enum: ['github', 'fake'] },
+        tokenEnv: { type: 'string', pattern: '^[A-Z_][A-Z0-9_]*$' },
+        apiUrl: { type: 'string', pattern: LOCAL_OR_HTTPS },
+      },
+    },
     stages: {
       type: 'object',
       additionalProperties: false,
@@ -37,7 +48,24 @@ const ticketSourceSpec = {
           required: ['taskConfig'],
           properties: { taskConfig: str },
         },
+        build: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['taskConfig'],
+          properties: { taskConfig: str, readyPolicy: str },
+        },
+        review: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['approver'],
+          properties: { approver: str },
+        },
       },
+    },
+    merge: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { method: { enum: ['squash'] }, holdLabel: str },
     },
     policy: {
       type: 'object',
@@ -46,9 +74,13 @@ const ticketSourceSpec = {
         maxActive: {
           type: 'object',
           additionalProperties: false,
-          properties: { refine: { type: 'integer', minimum: 1 } },
+          properties: {
+            refine: { type: 'integer', minimum: 1 },
+            build: { type: 'integer', minimum: 1 },
+          },
         },
         humanDecisions: { type: 'array', items: str, uniqueItems: true },
+        buildGate: { enum: ['label', 'auto'] },
       },
     },
     pollMs: { type: 'integer', minimum: 60000 },

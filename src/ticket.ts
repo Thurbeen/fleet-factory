@@ -1,4 +1,10 @@
-import { answersAmendment, refineBrief, refinementComment, relayedComments } from './brief.ts';
+import {
+  answersAmendment,
+  buildBrief,
+  refineBrief,
+  refinementComment,
+  relayedComments,
+} from './brief.ts';
 import type { CommentView, TicketView } from './board/types.ts';
 import {
   ACTIVE_PHASES,
@@ -7,6 +13,7 @@ import {
   LABEL_STAGE,
   LABEL_TICKET,
   MARKER_REFINEMENT,
+  type SourceSpec,
   WRITERS,
   boardRef,
   condition,
@@ -18,8 +25,19 @@ import {
 const POLL_MS = 60_000;
 const LABEL_NEEDS = 'factory:needs-decision';
 const LABEL_REFINED = 'factory:refined';
+const LABEL_READY = 'factory:ready';
 
-const refineName = (me: J) => `${me.metadata.name}-refine`;
+const stageName = (me: J, stage: string) => `${me.metadata.name}-${stage}`;
+
+function live(obs: J): J | null {
+  const k = known(obs);
+  return k.ok && k.value && !deleting(k.value) ? k.value : null;
+}
+
+function declaredChange(task: J): string | null {
+  const d = (task?.status?.declared ?? []).find((x: J) => x?.kind === 'ChangeRequest');
+  return d?.name ?? null;
+}
 
 export function probes(req: J): J[] {
   const me = req.object;
@@ -29,7 +47,8 @@ export function probes(req: J): J[] {
     if (!(p.id in obs)) out.push(p);
   };
   ask({ id: 'source', type: 'object', kind: 'TicketSource', name: me.spec.source });
-  ask({ id: 'refine', type: 'object', kind: 'Task', name: refineName(me) });
+  ask({ id: 'refine', type: 'object', kind: 'Task', name: stageName(me, 'refine') });
+  ask({ id: 'build', type: 'object', kind: 'Task', name: stageName(me, 'build') });
   if (out.length) return out;
   const source = known(obs.source);
   if (!source.ok || !source.value || deleting(me)) return [];
@@ -39,20 +58,26 @@ export function probes(req: J): J[] {
     type: 'plugin',
     request: { op: 'read', board: boardRef(spec), number: me.spec.number },
   });
-  const task = known(obs.refine);
-  if (!task.ok || !task.value || !task.value.spec?.dispatch)
-    ask({
-      id: 'queue',
-      type: 'list',
-      kind: 'Task',
-      labels: { [LABEL_SOURCE]: me.spec.source, [LABEL_STAGE]: 'refine' },
-    });
+  for (const stage of ['refine', 'build']) {
+    const task = live(obs[stage]);
+    if (!task?.spec?.dispatch)
+      ask({
+        id: `${stage}Queue`,
+        type: 'list',
+        kind: 'Task',
+        labels: { [LABEL_SOURCE]: me.spec.source, [LABEL_STAGE]: stage },
+      });
+  }
+  const change = declaredChange(live(obs.build));
+  if (change) ask({ id: 'change', type: 'object', kind: 'ChangeRequest', name: change });
   return out;
 }
 
-function hasCapacity(queue: J[], mine: string, maxActive: number): boolean {
-  const active = queue.filter(
-    (t) =>
+function hasCapacity(queueObs: J, mine: string, maxActive: number): boolean {
+  const queue = known(queueObs);
+  if (!queue.ok) return false;
+  const active = (queue.value ?? []).filter(
+    (t: J) =>
       !deleting(t) &&
       t.metadata?.name !== mine &&
       t.spec?.dispatch &&
@@ -94,6 +119,41 @@ function answers(ticket: TicketView, relayed: number[]): CommentView[] {
   );
 }
 
+function taskManifest(me: J, stage: string, spec: J) {
+  return {
+    apiVersion: 'fleet/v1alpha1',
+    kind: 'Task',
+    metadata: {
+      name: stageName(me, stage),
+      labels: {
+        [LABEL_SOURCE]: me.spec.source,
+        [LABEL_TICKET]: me.metadata.name,
+        [LABEL_STAGE]: stage,
+      },
+    },
+    spec,
+  };
+}
+
+function dispatchPatch(task: J, free: boolean): J[] {
+  if (task.spec?.dispatch || !free) return [];
+  return [
+    { kind: 'Task', name: task.metadata.name, uid: task.metadata.uid, spec: { dispatch: true } },
+  ];
+}
+
+function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null {
+  const s = cr?.status ?? {};
+  const head = s.head?.id;
+  if (!head || s.state?.value !== 'open' || !s.everReady) return null;
+  if (s.head?.checks !== 'passed' || Number(s.threads?.unresolved ?? 1) !== 0) return null;
+  if (!spec.approver || ticket.labels.includes(spec.merge.holdLabel)) return null;
+  const approved = (s.reviews ?? []).some(
+    (r: J) => r.author === spec.approver && r.state === 'approved' && r.head === head,
+  );
+  return approved ? head : null;
+}
+
 export function reconcile(req: J): J {
   const me = req.object;
   const obs = req.observations ?? {};
@@ -102,21 +162,30 @@ export function reconcile(req: J): J {
   const keep = { notBefore: now + POLL_MS };
   const source = known(obs.source);
   const ticketObs = known(obs.ticket);
-  const taskObs = known(obs.refine);
-  if (!source.ok || !source.value || !ticketObs.ok || !taskObs.ok) return keep;
+  const refineObs = known(obs.refine);
+  const buildObs = known(obs.build);
+  if (!source.ok || !source.value || !ticketObs.ok || !refineObs.ok || !buildObs.ok) return keep;
 
   const spec = sourceSpec(source.value.spec);
   const board = boardRef(spec);
   const ticket: TicketView | null = ticketObs.value;
-  const task: J = taskObs.value && !deleting(taskObs.value) ? taskObs.value : null;
+  const refineTask = live(obs.refine);
+  const buildTask = live(obs.build);
   const status: J = {
     phase: st.phase ?? 'Refining',
     observedGeneration: me.metadata.generation,
     refinement: st.refinement ?? null,
     posted: st.posted ?? null,
+    mergeRequested: st.mergeRequested ?? null,
+    change: st.change ?? null,
     conditions: st.conditions ?? [],
   };
   const plan: J = { status, notBefore: now + POLL_MS };
+
+  if (status.change?.merged) {
+    status.phase = 'Merged';
+    return plan;
+  }
 
   const inScope =
     ticket && ticket.state === 'open' && ticket.labels.includes(spec.board.intakeLabel);
@@ -125,59 +194,47 @@ export function reconcile(req: J): J {
     status.conditions = [
       condition(st.conditions, 'InScope', 'False', ticket ? 'NotLabelled' : 'Gone', '', now),
     ];
-    if (task) plan.deletes = [{ kind: 'Task', name: task.metadata.name, uid: task.metadata.uid }];
+    plan.deletes = [refineTask, buildTask]
+      .filter(Boolean)
+      .map((t: J) => ({ kind: 'Task', name: t.metadata.name, uid: t.metadata.uid }));
     return plan;
   }
   status.conditions = [condition(st.conditions, 'InScope', 'True', 'Labelled', '', now)];
 
-  const queue = known(obs.queue);
-  const free = queue.ok && hasCapacity(queue.value ?? [], refineName(me), spec.maxActive.refine);
-
-  if (!task) {
-    if (status.phase === 'Dropped') status.phase = 'Refining';
+  if (!refineTask) {
+    status.phase = 'Refining';
     status.refinement = null;
     status.posted = null;
     plan.creates = [
-      {
-        apiVersion: 'fleet/v1alpha1',
-        kind: 'Task',
-        metadata: {
-          name: refineName(me),
-          labels: {
-            [LABEL_SOURCE]: me.spec.source,
-            [LABEL_TICKET]: me.metadata.name,
-            [LABEL_STAGE]: 'refine',
-          },
+      taskManifest(me, 'refine', {
+        configRef: { name: spec.refine.taskConfig },
+        workspace: [`git+${spec.repository.url}#${spec.repository.branch}`],
+        brief: refineBrief(ticket!, spec.humanDecisions),
+        dispatch: hasCapacity(obs.refineQueue, stageName(me, 'refine'), spec.maxActive.refine),
+        outputs: {
+          state: { type: 'string', required: true },
+          decisions: { type: 'array', required: false },
+          acceptance: { type: 'array', required: false },
+          questions: { type: 'array', required: false },
         },
-        spec: {
-          configRef: { name: spec.refine.taskConfig },
-          workspace: [`git+${spec.repository.url}#${spec.repository.branch}`],
-          brief: refineBrief(ticket!, spec.humanDecisions),
-          dispatch: !!free,
-          outputs: {
-            state: { type: 'string', required: true },
-            decisions: { type: 'array', required: false },
-            acceptance: { type: 'array', required: false },
-            questions: { type: 'array', required: false },
-          },
-        },
-      },
+      }),
     ];
     return plan;
   }
+  plan.patches = dispatchPatch(
+    refineTask,
+    hasCapacity(obs.refineQueue, refineTask.metadata.name, spec.maxActive.refine),
+  );
 
-  if (!task.spec?.dispatch && free)
-    plan.patches = [
-      { kind: 'Task', name: task.metadata.name, uid: task.metadata.uid, spec: { dispatch: true } },
-    ];
-
-  const result = currentResult(task);
-  if (result) {
+  const result = currentResult(refineTask);
+  if (!result) {
+    if (!buildTask) return plan;
+  } else {
     const r = refinement(result, spec.humanDecisions);
     status.refinement = r;
-    status.phase = r.state === 'refined' ? 'Refined' : 'NeedsDecision';
     if (status.posted !== r.generation) {
       const refined = r.state === 'refined';
+      status.phase = refined ? 'Refined' : 'NeedsDecision';
       plan.effects = [
         {
           key: `refinement/${r.generation}`,
@@ -203,21 +260,97 @@ export function reconcile(req: J): J {
       status.posted = r.generation;
       return plan;
     }
-    if (status.phase === 'NeedsDecision') {
-      const fresh = answers(ticket!, relayedComments(task));
+    if (r.state !== 'refined') {
+      status.phase = 'NeedsDecision';
+      const fresh = answers(ticket!, relayedComments(refineTask));
       if (fresh.length) {
         plan.amends = [
           {
-            task: task.metadata.name,
-            uid: task.metadata.uid,
+            task: refineTask.metadata.name,
+            uid: refineTask.metadata.uid,
             text: answersAmendment(fresh),
             reason: 'collaborators answered on the ticket',
-            ifGeneration: Number(task.metadata.generation),
+            ifGeneration: Number(refineTask.metadata.generation),
           },
         ];
         status.phase = 'Refining';
       }
+      return plan;
     }
+  }
+
+  return build(me, obs, spec, ticket!, buildTask, status, plan, now);
+}
+
+function build(
+  me: J,
+  obs: J,
+  spec: SourceSpec,
+  ticket: TicketView,
+  buildTask: J | null,
+  status: J,
+  plan: J,
+  now: number,
+): J {
+  if (!buildTask) {
+    status.phase = 'Refined';
+    const gate = spec.buildGate === 'auto' || ticket.labels.includes(LABEL_READY);
+    if (!gate || !spec.build.taskConfig || !status.refinement) return plan;
+    status.phase = 'Building';
+    plan.creates = [
+      taskManifest(me, 'build', {
+        configRef: { name: spec.build.taskConfig },
+        workspace: [`git+${spec.repository.url}#${spec.repository.branch}`],
+        brief: buildBrief(ticket, status.refinement),
+        dispatch: hasCapacity(obs.buildQueue, stageName(me, 'build'), spec.maxActive.build),
+        outputs: { changeUrl: { type: 'string', required: true } },
+        ...(spec.build.readyPolicy ? { forge: { draft: { policy: spec.build.readyPolicy } } } : {}),
+      }),
+    ];
+    return plan;
+  }
+  plan.patches = [
+    ...plan.patches,
+    ...dispatchPatch(
+      buildTask,
+      hasCapacity(obs.buildQueue, buildTask.metadata.name, spec.maxActive.build),
+    ),
+  ];
+  status.phase = 'Building';
+  const cr = live(obs.change);
+  const state = cr?.status?.state?.value;
+  const url = (buildTask.status?.declared ?? []).find((d: J) => d?.kind === 'ChangeRequest')?.url;
+  if (!cr || !state) return plan;
+  const head = cr.status?.head?.id ?? null;
+  if (state === 'merged') {
+    status.phase = 'Merged';
+    status.change = { url, head, merged: true, mergedAt: now };
+    return plan;
+  }
+  if (state === 'closed') {
+    status.phase = 'Closed';
+    return plan;
+  }
+  if (state !== 'open') return plan;
+  status.phase = 'InReview';
+  const ready = mergeReady(cr, spec, ticket);
+  if (!ready) return plan;
+  status.phase = 'Merging';
+  if (status.mergeRequested !== ready) {
+    plan.effects = [
+      ...(plan.effects ?? []),
+      {
+        key: `automerge/${ready}`,
+        request: {
+          op: 'automerge',
+          forge: spec.forge,
+          url,
+          head: ready,
+          method: spec.merge.method,
+        },
+      },
+    ];
+    status.mergeRequested = ready;
   }
   return plan;
 }
