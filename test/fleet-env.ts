@@ -30,6 +30,7 @@ export class Env {
   constructor(extraEnv: Record<string, string> = {}) {
     this.extraEnv = extraEnv;
     mkdirSync(this.board);
+    mkdirSync(join(this.root, 'forge'));
     writeFileSync(
       this.config,
       [
@@ -39,6 +40,12 @@ export class Env {
         '[runtime]',
         'kind = "fake"',
         'dir = "fake"',
+        '[forge]',
+        'noCheckGraceMs = 1000',
+        '[forge.hosts]',
+        '"forge.test" = { kind = "fake", dir = "forge" }',
+        '[forge.readyPolicies.checks]',
+        'checksPassed = true',
         '[plugins.fleet-factory]',
         `program = '${process.execPath}'`,
         `args = ['${PLUGIN}']`,
@@ -90,7 +97,7 @@ export class Env {
 
   sweep(times = 1) {
     for (let i = 0; i < times; i++) {
-      for (const kind of ['TicketSource', 'Ticket']) {
+      for (const kind of ['TicketSource', 'Ticket', 'ChangeRequest']) {
         const dir = join(this.root, 'data/objects', kind);
         let files: string[] = [];
         try {
@@ -158,5 +165,40 @@ export class Env {
       args.push('--output', `${k}=${JSON.stringify(v)}`);
     this.ok(...args);
     this.ok('reconcile');
+  }
+
+  forgeState(): any {
+    try {
+      return JSON.parse(readFileSync(join(this.root, 'forge', 'state.json'), 'utf8'));
+    } catch {
+      return {};
+    }
+  }
+
+  setChange(id: number, change: object) {
+    const s = this.forgeState();
+    s.changes ??= {};
+    s.changes[`${PROJECT}/${id}`] = {
+      state: 'draft',
+      head: { id: 'a'.repeat(40), checks: 'none' },
+      reviewDecision: 'none',
+      mergeable: { value: null, reason: null },
+      threads: { unresolved: 0 },
+      reviews: [],
+      ...change,
+    };
+    writeFileSync(join(this.root, 'forge', 'state.json'), JSON.stringify(s, null, 2));
+  }
+
+  merges(): any[] {
+    try {
+      return JSON.parse(readFileSync(join(this.board, 'merges.json'), 'utf8'));
+    } catch {
+      return [];
+    }
+  }
+
+  stageTask(stage: string): any {
+    return this.list('task').find((t) => t.metadata.labels?.['fleet-factory/stage'] === stage);
   }
 }

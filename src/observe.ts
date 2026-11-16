@@ -1,6 +1,7 @@
 import { fake } from './board/fake.ts';
 import { github } from './board/github.ts';
 import { type Board, type BoardRef, Unknown } from './board/types.ts';
+import { autoMerge } from './forge.ts';
 import type { J } from './util.ts';
 
 const boards: Record<string, Board> = { fake, 'github-issues': github };
@@ -39,6 +40,8 @@ export async function perform(req: J): Promise<J> {
             labels: await board(req.board).labels(req.board, req.number, req.add, req.remove),
           },
         };
+      case 'automerge':
+        return { done: await autoMerge(req.forge, req) };
       default:
         return { failed: { why: `unknown op ${req?.op}` } };
     }
