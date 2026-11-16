@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/Thurbeen/fleet-factory/main/schema/factory.schema.json",
+  "title": "fleet-factory config",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "board", "forge", "repositories", "taskConfigs", "stages"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$"
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "project", "token"],
+      "properties": {
+        "kind": {
+          "enum": ["github-issues"]
+        },
+        "project": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "intakeLabel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "token": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["secret"],
+          "properties": {
+            "secret": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "forge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "token"],
+      "properties": {
+        "kind": {
+          "enum": ["github"]
+        },
+        "token": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["secret"],
+          "properties": {
+            "secret": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "url"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https://"
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "taskConfigs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["harness"],
+        "properties": {
+          "harness": {
+            "type": "string",
+            "minLength": 1
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "secrets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "stages": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["refine"],
+      "properties": {
+        "refine": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskConfig"],
+          "properties": {
+            "taskConfig": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskConfig"],
+          "properties": {
+            "taskConfig": {
+              "type": "string",
+              "minLength": 1
+            },
+            "readyPolicy": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskConfig", "login", "token"],
+          "properties": {
+            "taskConfig": {
+              "type": "string",
+              "minLength": 1
+            },
+            "login": {
+              "type": "string",
+              "minLength": 1
+            },
+            "token": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["secret"],
+              "properties": {
+                "secret": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "approveAt": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          }
+        },
+        "watch": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["taskConfig"],
+          "properties": {
+            "taskConfig": {
+              "type": "string",
+              "minLength": 1
+            },
+            "afterMs": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object"
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "enum": ["squash"]
+        },
+        "holdLabel": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fleetExport": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
