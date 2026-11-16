@@ -126,3 +126,45 @@ export function missingGuardrails(g: Guardrails): string[] {
   if (!g.allowAutoMerge) missing.push('auto-merge allowed');
   return missing;
 }
+
+export type Release = { tag: string; url: string; publishedAt: number };
+
+export async function release(ref: ForgeRef, change: string): Promise<Release | null> {
+  if (ref.kind === 'fake') {
+    const dir = process.env.FLEET_FACTORY_FAKE_DIR;
+    if (!dir) throw new Unknown('FLEET_FACTORY_FAKE_DIR is not set');
+    let all: (Release & { changes: string[] })[] = [];
+    try {
+      all = JSON.parse(readFileSync(join(dir, 'releases.json'), 'utf8'));
+    } catch {
+      return null;
+    }
+    const found = all
+      .filter((r) => r.changes.includes(change))
+      .sort((a, b) => a.publishedAt - b.publishedAt)[0];
+    return found ? { tag: found.tag, url: found.url, publishedAt: found.publishedAt } : null;
+  }
+  if (ref.kind !== 'github') throw new Error(`no forge adapter ${ref.kind}`);
+  const { owner, repo, number } = parse(change);
+  const pr = await github(ref, 'GET', `/repos/${owner}/${repo}/pulls/${number}`);
+  if (pr.status !== 200) throw new Unknown(`GitHub answered ${pr.status} for ${change}`);
+  const sha = pr.body.merge_commit_sha;
+  const mergedAt = Date.parse(pr.body.merged_at ?? '');
+  if (!sha || !mergedAt) return null;
+  const releases = await github(ref, 'GET', `/repos/${owner}/${repo}/releases?per_page=30`);
+  if (releases.status !== 200 || !Array.isArray(releases.body))
+    throw new Unknown(`GitHub answered ${releases.status} for the releases`);
+  const candidates = releases.body
+    .filter((r: any) => !r.draft && !r.prerelease && Date.parse(r.published_at) >= mergedAt)
+    .sort((a: any, b: any) => Date.parse(a.published_at) - Date.parse(b.published_at));
+  for (const r of candidates) {
+    const cmp = await github(
+      ref,
+      'GET',
+      `/repos/${owner}/${repo}/compare/${encodeURIComponent(r.tag_name)}...${sha}`,
+    );
+    if (cmp.status === 200 && ['behind', 'identical'].includes(cmp.body.status))
+      return { tag: r.tag_name, url: r.html_url, publishedAt: Date.parse(r.published_at) };
+  }
+  return null;
+}

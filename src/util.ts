@@ -51,6 +51,14 @@ export function sourceSpec(spec: J) {
       readyPolicy: spec?.stages?.build?.readyPolicy as string | undefined,
     },
     approver: spec?.stages?.review?.approver as string | undefined,
+    watch: {
+      taskConfig: spec?.stages?.watch?.taskConfig as string | undefined,
+      afterMs: Number(spec?.stages?.watch?.afterMs ?? 86_400_000),
+    },
+    followUps: {
+      label: String(policy.followUps?.label ?? 'factory:proposed'),
+      max: Number(policy.followUps?.max ?? 3),
+    },
     buildGate: String(policy.buildGate ?? 'label'),
     merge: {
       method: String(spec?.merge?.method ?? 'squash'),

@@ -17,11 +17,18 @@ export type TicketView = TicketSummary & {
   comments: CommentView[];
 };
 
+export type NewTicket = { title: string; body: string; labels: string[] };
+
 export interface Board {
   list(ref: BoardRef, label: string): Promise<TicketSummary[]>;
   read(ref: BoardRef, number: number): Promise<TicketView | null>;
   comment(ref: BoardRef, number: number, marker: string, body: string): Promise<{ id: number }>;
   labels(ref: BoardRef, number: number, add: string[], remove: string[]): Promise<string[]>;
+  create(
+    ref: BoardRef,
+    marker: string,
+    ticket: NewTicket,
+  ): Promise<{ number: number; url: string }>;
 }
 
 export class Unknown extends Error {}
