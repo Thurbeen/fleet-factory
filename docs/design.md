@@ -291,58 +291,13 @@ JSON with a `$schema`, so an editor completes and checks it, and Node.js reads i
 dependency. Every secret is a reference: a file or a command on the manager, never a value.
 The apply refuses a config that holds a value where a reference belongs.
 
-```json
-{
-  "$schema": "https://raw.githubusercontent.com/Thurbeen/fleet-factory/main/schema/factory.schema.json",
-  "name": "acme",
-  "board": {"kind": "github-issues", "project": "OWNER/app", "intakeLabel": "factory",
-            "token": {"secret": "board-token"}},
-  "repositories": [
-    {"name": "app", "url": "https://github.com/OWNER/app", "branch": "main",
-     "release": {"signal": "github-release"}}
-  ],
-  "taskConfigs": {
-    "factory-refine": {"harness": "claude", "host": "local"},
-    "factory-build": {"harness": "claude", "host": "local"},
-    "factory-review": {"harness": "claude", "host": "local"},
-    "factory-watch": {"harness": "claude", "host": "local", "env": {"OBS_KIND": "grafana"},
-                      "secrets": ["observability-token"]}
-  },
-  "stages": {
-    "refine": {"taskConfig": "factory-refine"},
-    "build": {"taskConfig": "factory-build", "readyPolicy": "checks-and-bots"},
-    "review": {"taskConfig": "factory-review", "token": {"secret": "reviewer-token"},
-               "approveAt": 4},
-    "merge": {"method": "squash", "holdLabel": "factory:hold"},
-    "watch": {"taskConfig": "factory-watch", "after": "24h"}
-  },
-  "policy": {
-    "buildGate": "label",
-    "maxActive": {"refine": 3, "build": 2, "watch": 3},
-    "humanDecisions": ["scope", "pricing", "data-retention", "security", "user-facing-copy"],
-    "followUps": {"label": "factory:proposed", "max": 3}
-  },
-  "observability": {
-    "backend": {"kind": "grafana", "url": "https://grafana.example.com",
-                "token": {"secret": "observability-token"}},
-    "fleetExport": {"endpoint": "http://localhost:4318"}
-  }
-}
-```
+The template is [`template/factory.json`](../template/factory.json), checked by
+[`schema/factory.schema.json`](../schema/factory.schema.json).
 
 `factory.local.json` holds what differs per machine: the Node.js path, the plugin
 checkouts, the Fleet runtime section, and the source of each secret.
 
-```json
-{
-  "paths": {"node": "/ABSOLUTE/PATH/node", "fleetReviewer": "/ABSOLUTE/PATH/fleet-reviewer"},
-  "secrets": {
-    "board-token": {"command": ["/ABSOLUTE/PATH/gh", "auth", "token"], "as": "GITHUB_TOKEN"},
-    "reviewer-token": {"file": "/ABSOLUTE/PATH/reviewer-env.json"},
-    "observability-token": {"command": ["/ABSOLUTE/PATH/pass", "show", "obs"], "as": "OBS_TOKEN"}
-  }
-}
-```
+[`template/factory.local.example.json`](../template/factory.local.example.json) shows it.
 
 ### One apply
 
