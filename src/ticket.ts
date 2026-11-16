@@ -1,6 +1,9 @@
 import {
   answersAmendment,
   buildBrief,
+  followUpBody,
+  watchBrief,
+  watchComment,
   refineBrief,
   refinementComment,
   relayedComments,
@@ -49,6 +52,7 @@ export function probes(req: J): J[] {
   ask({ id: 'source', type: 'object', kind: 'TicketSource', name: me.spec.source });
   ask({ id: 'refine', type: 'object', kind: 'Task', name: stageName(me, 'refine') });
   ask({ id: 'build', type: 'object', kind: 'Task', name: stageName(me, 'build') });
+  ask({ id: 'watch', type: 'object', kind: 'Task', name: stageName(me, 'watch') });
   if (out.length) return out;
   const source = known(obs.source);
   if (!source.ok || !source.value || deleting(me)) return [];
@@ -68,6 +72,13 @@ export function probes(req: J): J[] {
         labels: { [LABEL_SOURCE]: me.spec.source, [LABEL_STAGE]: stage },
       });
   }
+  const st = me.status ?? {};
+  if (st.change?.merged && !st.release && spec.watch.taskConfig && st.change.url)
+    ask({
+      id: 'release',
+      type: 'plugin',
+      request: { op: 'release', forge: spec.forge, url: st.change.url },
+    });
   const change = declaredChange(live(obs.build));
   if (change) ask({ id: 'change', type: 'object', kind: 'ChangeRequest', name: change });
   return out;
@@ -178,14 +189,13 @@ export function reconcile(req: J): J {
     posted: st.posted ?? null,
     mergeRequested: st.mergeRequested ?? null,
     change: st.change ?? null,
+    release: st.release ?? null,
+    reported: st.reported ?? null,
     conditions: st.conditions ?? [],
   };
   const plan: J = { status, notBefore: now + POLL_MS };
 
-  if (status.change?.merged) {
-    status.phase = 'Merged';
-    return plan;
-  }
+  if (status.change?.merged) return watch(me, obs, spec, status, plan, now);
 
   const inScope =
     ticket && ticket.state === 'open' && ticket.labels.includes(spec.board.intakeLabel);
@@ -354,5 +364,83 @@ function build(
     ];
     status.mergeRequested = ready;
   }
+  return plan;
+}
+
+function watch(me: J, obs: J, spec: SourceSpec, status: J, plan: J, now: number): J {
+  status.phase = 'Merged';
+  if (!spec.watch.taskConfig) return plan;
+  if (!status.release) {
+    const found = known(obs.release);
+    if (!found.ok || !found.value) return plan;
+    status.release = found.value;
+  }
+  status.phase = 'Released';
+  const due = Number(status.release.publishedAt) + spec.watch.afterMs;
+  if (now < due) {
+    plan.notBefore = due;
+    return plan;
+  }
+  const watchObs = known(obs.watch);
+  if (!watchObs.ok) return plan;
+  const task = live(obs.watch);
+  const ticket = { key: me.spec.key, url: me.spec.url ?? '' };
+  if (!task) {
+    if (status.reported != null) return plan;
+    status.phase = 'Watching';
+    plan.creates = [
+      taskManifest(me, 'watch', {
+        configRef: { name: spec.watch.taskConfig },
+        workspace: [`git+${spec.repository.url}#${status.release.tag}`],
+        brief: watchBrief(ticket, status.refinement ?? { acceptance: [] }, status.release),
+        dispatch: true,
+        outputs: {
+          verdict: { type: 'string', required: true },
+          findings: { type: 'array', required: false },
+        },
+      }),
+    ];
+    return plan;
+  }
+  status.phase = 'Watching';
+  const result = currentResult(task);
+  if (!result) return plan;
+  const generation = Number(result.generation);
+  const verdict = String(result.outputs?.verdict ?? 'inconclusive');
+  const findings: J[] = (
+    Array.isArray(result.outputs?.findings) ? result.outputs.findings : []
+  ).slice(0, spec.followUps.max);
+  status.phase = findings.length ? 'FollowedUp' : 'Done';
+  if (status.reported === generation) return plan;
+  const board = boardRef(spec);
+  plan.effects = [
+    {
+      key: `watch/${generation}`,
+      request: {
+        op: 'comment',
+        board,
+        number: me.spec.number,
+        marker: 'watch',
+        body: watchComment(verdict, status.release, findings),
+      },
+    },
+    ...findings.map((f: J, i: number) => ({
+      key: `followup/${generation}/${i}`,
+      request: {
+        op: 'create',
+        board,
+        marker: `followup-${me.metadata.name}-${generation}-${i}`,
+        ticket: {
+          title: String(f.title ?? 'Post-release finding'),
+          body: followUpBody(ticket.url, status.release, f),
+          labels: [
+            spec.followUps.label,
+            `factory:${f.kind === 'regression' ? 'regression' : 'improvement'}`,
+          ],
+        },
+      },
+    })),
+  ];
+  status.reported = generation;
   return plan;
 }

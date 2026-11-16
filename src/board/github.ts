@@ -122,6 +122,23 @@ export const github: Board = {
     return { id: created.id };
   },
 
+  async create(ref, name, ticket) {
+    const existing = (
+      await pages(
+        ref,
+        `${repo(ref)}/issues?state=all&labels=${encodeURIComponent(ticket.labels[0] ?? '')}`,
+      )
+    ).find((i) => !i.pull_request && String(i.body ?? '').includes(marker(name)));
+    if (existing) return { number: existing.number, url: existing.html_url };
+    const created = await call(ref, 'POST', `${repo(ref)}/issues`, {
+      title: ticket.title,
+      body: `${ticket.body}\n\n${marker(name)}`,
+      labels: ticket.labels,
+    });
+    if (!created) throw new Error(`cannot create an issue in ${ref.project}`);
+    return { number: created.number, url: created.html_url };
+  },
+
   async labels(ref, number, add, remove) {
     if (add.length)
       await call(ref, 'POST', `${repo(ref)}/issues/${number}/labels`, { labels: add });

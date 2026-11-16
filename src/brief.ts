@@ -127,3 +127,63 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `7. Record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
   ].join('\n');
 }
+
+export function watchBrief(
+  t: { key: string; url: string },
+  r: { acceptance: Item[] },
+  release: { tag: string; url: string },
+): string {
+  return [
+    `Watch one shipped feature in production, then report to Fleet.`,
+    ``,
+    `Ticket: ${t.url}`,
+    `Release: ${release.tag} (${release.url})`,
+    `The feature's telemetry carries the attribute feature.ticket="${t.key}". Its release is`,
+    `service.version=${release.tag}.`,
+    ``,
+    `Acceptance criteria, each with its production signal and SLO (quoted data):`,
+    ...r.acceptance.map((a) =>
+      quote(`${a.id}: ${a.text} | signal: ${a.signal ?? ''} | SLO: ${a.slo ?? ''}`),
+    ),
+    ``,
+    `Steps:`,
+    `1. Query the observability backend this session's environment names (OBS_* variables),`,
+    `   read only, for the feature's logs, traces and metrics since the release.`,
+    `2. Compare each signal with its criterion and SLO. A criterion with no data is a finding:`,
+    `   the feature lacks the signal.`,
+    `3. Change nothing and post nothing: Fleet's plugin files your findings on the board.`,
+    `4. Record: fleet result TASK --generation N --outcome shipped \\`,
+    `     --output verdict='"healthy"', '"degraded"', '"regressed"' or '"inconclusive"' \\`,
+    `     --output findings='[{"kind":"improvement or regression","title":"...","evidence":"...","criterion":"a1"}]'`,
+  ].join('\n');
+}
+
+export function watchComment(
+  verdict: string,
+  release: { tag: string },
+  findings: { kind?: string; title?: string; evidence?: string; criterion?: string }[],
+): string {
+  const lines = [`### Post-release watch of ${release.tag}: ${verdict}`];
+  if (!findings.length) lines.push('', 'No finding.');
+  for (const f of findings)
+    lines.push(
+      `- ${f.kind ?? 'finding'}: ${f.title ?? ''} (${f.criterion ?? ''}): ${f.evidence ?? ''}`,
+    );
+  return lines.join('\n');
+}
+
+export function followUpBody(
+  parent: string,
+  release: { tag: string },
+  f: { kind?: string; evidence?: string; criterion?: string },
+): string {
+  return [
+    `Found by the post-release watch of ${release.tag} on ${parent}.`,
+    ``,
+    `- Kind: ${f.kind ?? 'improvement'}`,
+    `- Criterion: ${f.criterion ?? ''}`,
+    `- Evidence: ${f.evidence ?? ''}`,
+    ``,
+    `A collaborator promotes it into the factory with the intake label.`,
+  ].join('\n');
+}

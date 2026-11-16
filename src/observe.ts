@@ -1,7 +1,7 @@
 import { fake } from './board/fake.ts';
 import { github } from './board/github.ts';
 import { type Board, type BoardRef, Unknown } from './board/types.ts';
-import { autoMerge, guardrails } from './forge.ts';
+import { autoMerge, guardrails, release } from './forge.ts';
 import type { J } from './util.ts';
 
 const boards: Record<string, Board> = { fake, 'github-issues': github };
@@ -19,6 +19,8 @@ export async function observe(req: J): Promise<J> {
         return { known: await board(req.board).list(req.board, req.label) };
       case 'read':
         return { known: await board(req.board).read(req.board, req.number) };
+      case 'release':
+        return { known: await release(req.forge, req.url) };
       case 'guardrails':
         return { known: await guardrails(req.forge, req.url, req.branch) };
       default:
@@ -42,6 +44,8 @@ export async function perform(req: J): Promise<J> {
             labels: await board(req.board).labels(req.board, req.number, req.add, req.remove),
           },
         };
+      case 'create':
+        return { done: await board(req.board).create(req.board, req.marker, req.ticket) };
       case 'automerge':
         return { done: await autoMerge(req.forge, req) };
       default:

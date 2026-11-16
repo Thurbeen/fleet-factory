@@ -90,6 +90,30 @@ export const fake: Board = {
     return { id };
   },
 
+  async create(ref, name, ticket) {
+    const s = load();
+    const found = Object.entries(s.tickets).find(
+      ([k, t]) => k.startsWith(`${ref.project}#`) && t.body.includes(marker(name)),
+    );
+    if (found) {
+      const number = Number(found[0].split('#')[1]);
+      return { number, url: url(ref, number) };
+    }
+    const numbers = Object.keys(s.tickets)
+      .filter((k) => k.startsWith(`${ref.project}#`))
+      .map((k) => Number(k.split('#')[1]));
+    const number = Math.max(0, ...numbers) + 1;
+    s.tickets[key(ref, number)] = {
+      title: ticket.title,
+      body: `${ticket.body}\n\n${marker(name)}`,
+      state: 'open',
+      labels: ticket.labels,
+      comments: [],
+    };
+    save(s);
+    return { number, url: url(ref, number) };
+  },
+
   async labels(ref, number, add, remove) {
     const s = load();
     const t = stored(s, ref, number);

@@ -54,6 +54,12 @@ const ticketSourceSpec = {
           required: ['taskConfig'],
           properties: { taskConfig: str, readyPolicy: str },
         },
+        watch: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['taskConfig'],
+          properties: { taskConfig: str, afterMs: { type: 'integer', minimum: 0 } },
+        },
         review: {
           type: 'object',
           additionalProperties: false,
@@ -81,6 +87,11 @@ const ticketSourceSpec = {
         },
         humanDecisions: { type: 'array', items: str, uniqueItems: true },
         buildGate: { enum: ['label', 'auto'] },
+        followUps: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { label: str, max: { type: 'integer', minimum: 0, maximum: 7 } },
+        },
       },
     },
     pollMs: { type: 'integer', minimum: 60000 },
