@@ -1,6 +1,6 @@
 # fleet-factory design
 
-Status: proposal, waiting for approval. Nothing here is built yet.
+Status: approved. The MVP is being built.
 
 fleet-factory is a software factory on [Fleet](https://github.com/Thurbeen/thurbox/tree/main/docs/fleet).
 It takes a ticket from a board, refines it into recorded functional decisions, builds it
@@ -22,13 +22,15 @@ where v3 still supports them; [Prior work](#prior-work) lists what changed.
   criteria.
 - Review every shipped feature against its acceptance criteria and SLOs, from its own
   logs, traces and metrics, after each release.
-- Keep every merge, release and deploy behind the approval that the forge enforces.
+- Merge without a person: the reviewer's approval, the checks and the forge's rules decide.
+- Keep every release and deploy behind the approval that the forge enforces.
 - Describe one factory as code: one config file, one idempotent apply, with a dry run.
 - Reuse Fleet, fleet-reviewer and the forge. Add only what none of them does.
 
 ## Non-goals
 
-- Merging, releasing or deploying. The forge does these, after a person approves.
+- Releasing or deploying. The forge does these, after a person approves.
+- Bypassing a forge rule. The forge performs every merge, and only when its rules hold.
 - A CI/CD system. Each repository keeps its own pipelines.
 - An observability backend. The factory reads the operator's backend; it stores no
   telemetry.
@@ -51,7 +53,7 @@ flowchart TD
   I -->|draft change, fleet declare| F[Fleet follows the change<br/>relays checks and notes]
   F -->|ready policy holds| RV[fleet-reviewer review Task]
   RV -->|findings relayed| I
-  RV --> G2{{Gate: person approves and merges}}
+  RV -->|approves the head at the threshold| G2{{Gate: auto-merge<br/>checks, approval, threads}}
   G2 --> CD[Forge CI/CD: release,<br/>deploy behind approval]
   CD -->|release contains the merge| W[Watch Task after the window<br/>logs, traces, metrics vs acceptance + SLOs]
   W -->|healthy| D[Ticket closed with a watch report]
@@ -82,13 +84,17 @@ flowchart TD
 6. **Review.** Fleet follows the declared change. When the ready policy holds, Fleet takes
    the draft out of draft. fleet-reviewer then reviews the ready change, and Fleet relays
    its findings to the build Task. A new push makes fleet-reviewer amend its review.
-7. **Merge, release, deploy.** A person approves and merges on the forge. The repository's
-   own pipelines release and deploy, behind the forge's environment approval.
-8. **Post-release watch.** The plugin finds the first release that contains the merge
+7. **Merge.** No person takes part. fleet-reviewer approves the exact head it reviewed when
+   its confidence reaches the threshold. When the merge gate holds, the plugin asks the
+   forge to auto-merge the change with a squash. The forge merges only when its own rules
+   hold.
+8. **Release, deploy.** The repository's own pipelines release and deploy, behind the
+   forge's environment approval.
+9. **Post-release watch.** The plugin finds the first release that contains the merge
    commit. After the watch window it creates a watch Task. The Task queries the
    observability backend for the feature's signals in that release, and it compares them
    with the acceptance criteria and SLOs.
-9. **Back to the board.** The plugin posts the watch report on the ticket. Each finding
+10. **Back to the board.** The plugin posts the watch report on the ticket. Each finding
    becomes a new ticket, labelled `factory:proposed` and linked to its parent. A person
    promotes a proposed ticket with the `factory` label, and the loop starts again.
 
@@ -102,7 +108,7 @@ The plugin owns the ticket's journey and the board. Everything else already has 
 | Shared harness, place, model and environment | Fleet `TaskConfig`, `EnvProvider` | The apply writes one TaskConfig per stage. Secrets enter only through EnvProvider file or command sources. |
 | Following a change, relaying checks and notes, mark ready | Fleet `ChangeRequest`, ForgeController, `[forge.readyPolicies]` | The build Task declares its change. The `Ticket` reads the ChangeRequest from the store. |
 | Code review | fleet-reviewer `ReviewSource`, `Review` | The apply writes one ReviewSource per repository. The factory adds no review logic. |
-| Merge, required checks, approvals, release, deploy | The forge: rulesets, Actions, environments | The plugin reads the merge and the release. It checks that the guardrails exist. It never writes them. |
+| Merge, required checks, approvals, release, deploy | The forge: rulesets, auto-merge, Actions, environments | The plugin requests auto-merge, then reads the merge and the release. It checks that the guardrails exist. It never writes them. |
 | Fleet and agent telemetry | Fleet's OpenTelemetry export | Stage Task names carry the ticket key. A search by `fleet.name` or `fleet.task` finds one stage of one ticket. |
 | Product telemetry | The operator's backend | The watch Task reads it with a read-only credential. |
 | Ticket intake, stage machine, stage gates, board writes, release detection, watch schedule, follow-up tickets | **fleet-factory plugin** | This repository. |
@@ -114,7 +120,9 @@ Rules that follow from this table:
   answers are Task outputs, and the plugin writes them through the board adapter.
 - Agents are the only writers of code on the forge, as Fleet's standing worker policy
   says: draft first, declare, mark every post.
-- No part of the factory merges, releases, deploys or changes a forge setting.
+- The plugin's only forge write is the auto-merge request on a change that passed the
+  merge gate. The forge performs the merge.
+- No part of the factory releases, deploys or changes a forge setting.
 
 ## The plugin
 
@@ -153,7 +161,9 @@ stateDiagram-v2
   Refined --> Building: build gate holds
   Building --> InReview: change declared, ready policy held
   InReview --> Building: findings relayed
-  InReview --> Merged: a person merged
+  InReview --> Merging: merge gate holds, auto-merge requested
+  Merging --> Building: a new push or a blocking finding
+  Merging --> Merged: the forge merged
   Merged --> Released: a release contains the merge
   Released --> Watching: window passed, watch Task created
   Watching --> Done: healthy, report posted
@@ -175,12 +185,13 @@ its gate holds.
 | Gate | Holds when | Default |
 | --- | --- | --- |
 | Intake | The ticket is open and carries the intake label. | Label `factory`. |
-| Guardrails | The target branch's active forge rules require a pull request with at least one approval, and the required checks. Read once per source pass. A rule's bypass list is readable only by an admin, so keeping the factory's identities off it is the operator's duty. | Required. A source whose guardrails are Unknown or missing starts no build. |
+| Guardrails | The target branch's active forge rules require a pull request with at least one approval, resolved threads, and the required checks, and the repository allows auto-merge. Read once per source pass. A rule's bypass list is readable only by an admin, so keeping the factory's identities off it is the operator's duty. | Required. A source whose guardrails are Unknown or missing starts no build. |
 | Refined | The refine Task's latest result answers every question, and each decision in a human-owned area names a person's answer. | Areas: scope, pricing, data retention, security, user-facing copy. |
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
-| Merge, release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
+| Merge | Fleet marked the change ready; its checks passed; fleet-reviewer approved the current head; no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
+| Release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
 | Watch | A release contains the merge commit, and the watch window has passed. | GitHub Release, 24 hours. |
 | Follow-up | Findings exist and the parent has fewer than the cap of follow-ups. | Label `factory:proposed`, cap 3. |
 
@@ -300,7 +311,9 @@ The apply refuses a config that holds a value where a reference belongs.
   "stages": {
     "refine": {"taskConfig": "factory-refine"},
     "build": {"taskConfig": "factory-build", "readyPolicy": "checks-and-bots"},
-    "review": {"taskConfig": "factory-review", "token": {"secret": "reviewer-token"}},
+    "review": {"taskConfig": "factory-review", "token": {"secret": "reviewer-token"},
+               "approveAt": 4},
+    "merge": {"method": "squash", "holdLabel": "factory:hold"},
     "watch": {"taskConfig": "factory-watch", "after": "24h"}
   },
   "policy": {
@@ -348,7 +361,8 @@ The apply is idempotent. A second run with the same input writes nothing.
 3. Render the resources: one EnvProvider per secret, as a command source that runs
    `bin/secret-env.ts`; one TaskConfig per stage; one `TicketSource` per repository; one
    `ReviewSource` per repository, scoped with `requireLabels: ["factory"]`, so it
-   reviews only the factory's changes. The build Task labels its change `factory`.
+   reviews only the factory's changes, and `review.approveAt` from the config. The build Task
+   labels its change `factory`.
 4. Read each resource with `fleet get`, and compare it with the rendered one.
 5. Print the plan: created, changed, unchanged, and managed objects no longer in the
    config.
@@ -370,7 +384,9 @@ registers plugins only in its native config and has no include.
 | Make a decision in a human-owned area | A collaborator, in a ticket comment | The Refined gate |
 | Start a build | A collaborator, with `factory:ready`, unless the policy says `auto` | The Build approved gate |
 | Take a draft out of draft | Fleet, when the ready policy holds | Fleet's ForgeController |
-| Approve and merge | A person | Forge rules; the Guardrails gate refuses to build without them |
+| Approve | fleet-reviewer, for the head it reviewed, at the threshold | The reviewer identity's write access and the forge rules |
+| Merge | The forge, on the plugin's auto-merge request | The Merge gate, then the forge's rules; the Guardrails gate refuses to build without them |
+| Stop a merge | A collaborator, with `factory:hold` | The Merge gate |
 | Release and deploy | The repository's pipelines, behind the forge's environment approval | The forge |
 | Promote a follow-up ticket | A collaborator, with the intake label | The Intake gate |
 | Change the factory | Whoever may push to the factory's IaC repository | That repository's own review |
@@ -417,7 +433,8 @@ The MVP closes the loop once, for GitHub Issues and GitHub, on one repository.
 2. The plugin: `TicketSource`, `Ticket`, the refine stage, the GitHub Issues and fake
    adapters.
 3. The build stage, the Guardrails gate, and the ReviewSource for fleet-reviewer.
-4. Merge and release detection, the watch stage, and follow-up tickets.
+4. The merge gate and auto-merge request, release detection, the watch stage, and follow-up
+   tickets.
 5. The template config, `factory plan`, `factory apply` and `factory up`.
 6. One live loop on a sandbox repository that ends with an improvement ticket.
 
@@ -444,7 +461,7 @@ drops its mechanics.
 | Fleet owns work and policy; the runtime owns execution. | The queue, conductor, shepherd and topic verbs: v3 has Tasks, plugins and the Forge controller. |
 | Emit OTLP only; the backend is the operator's choice; a Collector is the place for vendor credentials. | A record-to-span exporter in Fleet: v3 exports one trace per Task, and gives each agent `fleet.task` and `fleet.uid`. |
 | A review binds to the exact head. | A Fleet-side review record: fleet-reviewer and the ForgeController follow heads. |
-| Merge stays human. | A required `factory/review` commit status: the forge's own approval rule does this. |
+| No merge at an unreviewed head. | A required `factory/review` commit status: the reviewer's approval on the head and the forge's approval rule do this. |
 | A declarative definition of the factory. | A new `Factory` kind: plain Fleet resources and two plugin kinds suffice. |
 | DORA and cost per stage. | Moved to a later phase. |
 
@@ -460,7 +477,7 @@ Each has a default that this design already assumes.
 | 4 | Board writes | The plugin only; agents hold no board credential. |
 | 5 | Build gate | A person sets `factory:ready`. |
 | 6 | Plan | Inside the build Task, as the draft change's body; no separate plan approval. |
-| 7 | Review | fleet-reviewer with its own identity, posting, without approval; a person approves and merges. |
+| 7 | Review and merge | fleet-reviewer with its own identity, posting, approving at confidence 4; the plugin requests a squash auto-merge, and the forge merges. No person approves a merge. |
 | 8 | Release signal | The first GitHub Release that contains the merge commit. |
 | 9 | Watch | One check 24 hours after the release; the first backend is Grafana (Prometheus, Loki, Tempo APIs). |
 | 10 | Follow-ups | Filed as `factory:proposed`, at most 3 per ticket; a person promotes them. |
