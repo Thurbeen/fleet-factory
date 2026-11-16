@@ -1,8 +1,9 @@
 import { fake } from './board/fake.ts';
+import { github } from './board/github.ts';
 import { type Board, type BoardRef, Unknown } from './board/types.ts';
 import type { J } from './util.ts';
 
-const boards: Record<string, Board> = { fake };
+const boards: Record<string, Board> = { fake, 'github-issues': github };
 
 function board(ref: BoardRef): Board {
   const b = boards[ref?.kind];

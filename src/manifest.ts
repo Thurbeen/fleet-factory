@@ -10,11 +10,14 @@ const ticketSourceSpec = {
       additionalProperties: false,
       required: ['kind', 'project'],
       properties: {
-        kind: { enum: ['fake'] },
+        kind: { enum: ['github-issues', 'fake'] },
         project: { type: 'string', pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' },
         intakeLabel: str,
         tokenEnv: { type: 'string', pattern: '^[A-Z_][A-Z0-9_]*$' },
-        apiUrl: { type: 'string', pattern: '^https://' },
+        apiUrl: {
+          type: 'string',
+          pattern: '^(https://|http://(127\\.0\\.0\\.1|localhost)(:[0-9]+)?(/|$))',
+        },
       },
     },
     repository: {
