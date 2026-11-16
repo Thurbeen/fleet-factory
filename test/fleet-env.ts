@@ -57,6 +57,7 @@ export class Env {
       ].join('\n'),
     );
     this.writeBoard({ tickets: {}, nextComment: 1 });
+    this.setGuardrails(GUARDED);
   }
 
   fleet(...args: string[]) {
@@ -201,4 +202,19 @@ export class Env {
   stageTask(stage: string): any {
     return this.list('task').find((t) => t.metadata.labels?.['fleet-factory/stage'] === stage);
   }
+
+  setGuardrails(v: object) {
+    writeFileSync(join(this.board, 'guardrails.json'), JSON.stringify(v));
+  }
 }
+
+export const GUARDED = {
+  allowAutoMerge: true,
+  rules: [
+    {
+      type: 'pull_request',
+      parameters: { required_approving_review_count: 1, required_review_thread_resolution: true },
+    },
+    { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'CI' }] } },
+  ],
+};

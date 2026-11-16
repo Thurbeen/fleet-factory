@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Env, FLEET, PROJECT } from './fleet-env.ts';
+import { Env, FLEET, GUARDED, PROJECT } from './fleet-env.ts';
 
 const HEAD = 'b'.repeat(40);
 const CHANGE = 'https://forge.test/example/app/pull/11';
@@ -74,6 +74,23 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     env.sweep(2);
     expect(phase(env)).toBe('Refined');
     expect(env.stageTask('build')).toBeUndefined();
+  });
+
+  it('starts no build where the branch rules allow an unreviewed merge', () => {
+    const env = refined();
+    env.setGuardrails({ ...GUARDED, rules: GUARDED.rules.slice(1) });
+    env.setTicket({ number: 1, labels: ['factory', 'factory:refined', 'factory:ready'] });
+    env.sweep(3);
+    expect(env.stageTask('build')).toBeUndefined();
+    const guarded = env
+      .get('ticketsource', 'app')
+      .status.conditions.find((c: any) => c.type === 'Guarded');
+    expect(guarded).toMatchObject({ status: 'False', reason: 'Missing' });
+    expect(guarded.message).toContain('approval');
+
+    env.setGuardrails(GUARDED);
+    env.sweep(3);
+    expect(env.stageTask('build')).toBeDefined();
   });
 
   it('starts a test-first build Task that opens a draft and follows the ready policy', () => {

@@ -279,7 +279,8 @@ export function reconcile(req: J): J {
     }
   }
 
-  return build(me, obs, spec, ticket!, buildTask, status, plan, now);
+  const guarded = source.value.status?.guardrails?.ok === true;
+  return build(me, obs, spec, ticket!, buildTask, status, plan, now, guarded);
 }
 
 function build(
@@ -291,11 +292,12 @@ function build(
   status: J,
   plan: J,
   now: number,
+  guarded: boolean,
 ): J {
   if (!buildTask) {
     status.phase = 'Refined';
     const gate = spec.buildGate === 'auto' || ticket.labels.includes(LABEL_READY);
-    if (!gate || !spec.build.taskConfig || !status.refinement) return plan;
+    if (!gate || !guarded || !spec.build.taskConfig || !status.refinement) return plan;
     status.phase = 'Building';
     plan.creates = [
       taskManifest(me, 'build', {

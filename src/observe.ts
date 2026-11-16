@@ -1,7 +1,7 @@
 import { fake } from './board/fake.ts';
 import { github } from './board/github.ts';
 import { type Board, type BoardRef, Unknown } from './board/types.ts';
-import { autoMerge } from './forge.ts';
+import { autoMerge, guardrails } from './forge.ts';
 import type { J } from './util.ts';
 
 const boards: Record<string, Board> = { fake, 'github-issues': github };
@@ -19,6 +19,8 @@ export async function observe(req: J): Promise<J> {
         return { known: await board(req.board).list(req.board, req.label) };
       case 'read':
         return { known: await board(req.board).read(req.board, req.number) };
+      case 'guardrails':
+        return { known: await guardrails(req.forge, req.url, req.branch) };
       default:
         return { unknown: { why: `unknown op ${req?.op}` } };
     }
