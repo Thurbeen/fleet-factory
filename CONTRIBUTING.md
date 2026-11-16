@@ -5,16 +5,23 @@ Read [AGENTS.md](AGENTS.md) and the design, `docs/design.md`, first.
 ## Setup
 
 ```sh
+pnpm install
 prek install
 ```
 
+Node.js 22.18 or later runs the plugin and its tests, unbuilt.
 [prek](https://github.com/j178/prek) runs the hooks;
 [cocogitto](https://github.com/cocogitto/cocogitto) checks commit messages.
 
 ## The gate
 
-`prek run --all-files` is the gate: gitleaks, rumdl and ShellCheck. The `publish` skill
-and CI run the same checks.
+`prek run --all-files` is the gate. The `publish` skill and CI run the same checks:
+
+- gitleaks, rumdl and ShellCheck;
+- `pnpm typecheck`, `pnpm fmt:check` and `pnpm test`.
+
+The end-to-end tests run only when `FLEET_BIN` names a `fleet` binary. CI downloads the
+pinned Fleet release, checks its checksum and requires them.
 
 ## Commits and pull requests
 
