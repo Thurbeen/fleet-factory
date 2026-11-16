@@ -8,8 +8,8 @@ test first, has it reviewed, follows it through the forge's CI/CD and release, t
 the shipped feature in production. What the watch finds goes back on the board as new
 tickets. A person copies one template config, fills it, and applies it.
 
-Every Fleet fact on this page was read in the Fleet v3.1.0 sources and docs
-(`Thurbeen/thurbox` at tag `v3.1.0`). Facts from the earlier pre-v3 attempt were kept only
+Every Fleet fact on this page was read in the Fleet sources and docs of `Thurbeen/thurbox`
+main at `c8b91b7`, which is the tag `v3.1.0`. Facts from the earlier pre-v3 attempt were kept only
 where v3 still supports them; [Prior work](#prior-work) lists what changed.
 
 ## Goals
@@ -77,7 +77,8 @@ flowchart TD
    2. a failing end-to-end test for each acceptance criterion, committed first;
    3. the implementation, until the tests pass;
    4. the instrumentation each signal needs, tagged with the ticket key;
-   5. `fleet declare TASK --change-request URL`, and the worker mark on every post.
+   5. the label `factory` on the change, `fleet declare TASK --change-request URL`, and
+      the worker mark on every post.
 6. **Review.** Fleet follows the declared change. When the ready policy holds, Fleet takes
    the draft out of draft. fleet-reviewer then reviews the ready change, and Fleet relays
    its findings to the build Task. A new push makes fleet-reviewer amend its review.
@@ -102,7 +103,7 @@ The plugin owns the ticket's journey and the board. Everything else already has 
 | Following a change, relaying checks and notes, mark ready | Fleet `ChangeRequest`, ForgeController, `[forge.readyPolicies]` | The build Task declares its change. The `Ticket` reads the ChangeRequest from the store. |
 | Code review | fleet-reviewer `ReviewSource`, `Review` | The apply writes one ReviewSource per repository. The factory adds no review logic. |
 | Merge, required checks, approvals, release, deploy | The forge: rulesets, Actions, environments | The plugin reads the merge and the release. It checks that the guardrails exist. It never writes them. |
-| Fleet and agent telemetry | Fleet's OpenTelemetry export | Stage Task names carry the ticket key, so one search finds every stage of one ticket. |
+| Fleet and agent telemetry | Fleet's OpenTelemetry export | Stage Task names carry the ticket key. A search by `fleet.name` or `fleet.task` finds one stage of one ticket. |
 | Product telemetry | The operator's backend | The watch Task reads it with a read-only credential. |
 | Ticket intake, stage machine, stage gates, board writes, release detection, watch schedule, follow-up tickets | **fleet-factory plugin** | This repository. |
 | The factory's own definition | **fleet-factory apply** | This repository. |
@@ -174,7 +175,7 @@ its gate holds.
 | Gate | Holds when | Default |
 | --- | --- | --- |
 | Intake | The ticket is open and carries the intake label. | Label `factory`. |
-| Guardrails | The target branch's forge rules require a human approval and the required checks, and grant no bypass to the factory's identities. Read once per source pass. | Required. A source whose guardrails are Unknown or missing starts no build. |
+| Guardrails | The target branch's active forge rules require a pull request with at least one approval, and the required checks. Read once per source pass. A rule's bypass list is readable only by an admin, so keeping the factory's identities off it is the operator's duty. | Required. A source whose guardrails are Unknown or missing starts no build. |
 | Refined | The refine Task's latest result answers every question, and each decision in a human-owned area names a person's answer. | Areas: scope, pricing, data retention, security, user-facing copy. |
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
@@ -346,8 +347,8 @@ The apply is idempotent. A second run with the same input writes nothing.
    `[plugins.fleet-reviewer]`, each with `envFrom` for its tokens.
 3. Render the resources: one EnvProvider per secret, as a command source that runs
    `bin/secret-env.ts`; one TaskConfig per stage; one `TicketSource` per repository; one
-   `ReviewSource` per repository, scoped with `requireLabels: ["factory"]` and
-   `ownChanges: true`.
+   `ReviewSource` per repository, scoped with `requireLabels: ["factory"]`, so it
+   reviews only the factory's changes. The build Task labels its change `factory`.
 4. Read each resource with `fleet get`, and compare it with the rendered one.
 5. Print the plan: created, changed, unchanged, and managed objects no longer in the
    config.
