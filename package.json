@@ -1,0 +1,25 @@
+{
+  "name": "fleet-factory",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fleet plugin: a software factory from a ticket board to production and back",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "packageManager": "pnpm@12.21.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check .",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm fmt:check && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "prettier": "3.10.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

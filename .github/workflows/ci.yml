@@ -12,7 +12,47 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  FLEET_VERSION: 3.1.0
+
 jobs:
+  plugin:
+    name: Plugin (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [24, 26]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - name: Download the pinned Fleet release and verify its checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/fleet" && cd "$RUNNER_TEMP/fleet"
+          asset="thurbox-v${FLEET_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          sums="thurbox-${FLEET_VERSION}-sha256sums.txt"
+          gh release download "v$FLEET_VERSION" -R Thurbeen/thurbox -p "$asset" -p "$sums"
+          grep " $asset\$" "$sums" | sha256sum -c -
+          tar xzf "$asset" fleet
+          echo "FLEET_BIN=$RUNNER_TEMP/fleet/fleet" >> "$GITHUB_ENV"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm fmt:check
+      - run: pnpm test
+        env:
+          FLEET_E2E_REQUIRED: '1'
+      - name: The plugin runs without a build or a dependency
+        run: |
+          echo '{"protocol":1,"plugin":"fleet-factory","id":"m"}' \
+            | node src/plugin.ts manifest | grep -q '"ok":true'
+
   markdown-lint:
     name: Markdown Lint
     runs-on: ubuntu-latest
@@ -36,6 +76,7 @@ jobs:
     name: All Checks
     if: always()
     needs:
+      - plugin
       - markdown-lint
       - shellcheck
     runs-on: ubuntu-latest
