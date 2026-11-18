@@ -88,13 +88,16 @@ function operatorPlugins(root: string, factories: string[]) {
     'tasks = "own"',
     `envFrom = ${envFrom('board-token')}`,
     '',
-    '[plugins.fleet-reviewer]',
+    '[plugins."fleet-reviewer"]',
     `program = "${process.execPath}"`,
     `args = ["${join(STUB_REVIEWER, 'src/plugin.ts')}"]`,
     `cwd = "${STUB_REVIEWER}"`,
     'callTimeoutMs = 15000',
     'tasks = "own"',
-    `envFrom = [{ name = "operator-tokens" }, ${envFrom('reviewer-token').slice(1)}`,
+    'envFrom = [',
+    '  { name = "operator-tokens" },',
+    ...factories.map((f) => `  { name = "${f}-secret-reviewer-token" },`),
+    ']',
     '',
   ].join('\n');
 }

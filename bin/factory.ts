@@ -81,7 +81,8 @@ function pluginToml(p: PluginEntry): string {
 
 function tomlSection(toml: string, header: string): string | null {
   const lines = toml.split('\n');
-  const start = lines.findIndex((l) => l.trim() === header);
+  const bare = (line: string) => line.replace(/#.*$/, '').replace(/[\s"']/g, '');
+  const start = lines.findIndex((l) => bare(l) === header);
   if (start < 0) return null;
   const end = lines.findIndex((l, i) => i > start && l.trim().startsWith('['));
   return lines.slice(start + 1, end < 0 ? undefined : end).join('\n');
@@ -94,7 +95,16 @@ function tomlStrings(text: string): string[] {
 }
 
 function tomlValue(section: string, key: string): string {
-  return section.match(new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`, 'm'))?.[1] ?? '';
+  const found = section.match(new RegExp(`^\\s*${key}\\s*=\\s*`, 'm'));
+  if (!found) return '';
+  const rest = section.slice(found.index! + found[0].length);
+  if (!rest.startsWith('[')) return rest.split('\n')[0];
+  let depth = 0;
+  for (let i = 0; i < rest.length; i++) {
+    depth += rest[i] === '[' ? 1 : rest[i] === ']' ? -1 : 0;
+    if (depth === 0) return rest.slice(0, i + 1);
+  }
+  return rest;
 }
 
 function registration(toml: string, p: PluginEntry): 'present' | 'missing' | 'differs' {
