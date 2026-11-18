@@ -5,14 +5,18 @@ export type TicketSummary = { key: string; number: number; url: string; labels: 
 export type CommentView = {
   id: number;
   author: string;
+  type: string;
   permission: string;
   body: string;
   factory: string | null;
 };
 
+export type Account = { login: string; type: string; permission: string };
+
 export type TicketView = TicketSummary & {
   title: string;
   body: string;
+  author: Account;
   state: 'open' | 'closed';
   comments: CommentView[];
 };

@@ -9,9 +9,15 @@ export const LABEL_STAGE = 'fleet-factory/stage';
 export const MARKER_REFINEMENT = 'refinement';
 export const ACTIVE_PHASES = ['Pending', 'Spawning', 'Spawned', 'Briefed'];
 export const WRITERS = ['admin', 'maintain', 'write'];
+export const WORKER_MARK = '<!-- fleet:worker';
 
 export function sameLogin(a: string, b: string): boolean {
-  const bare = (login: string) => login.toLowerCase().replace(/\[bot\]$/, '');
+  const bare = (login: string) =>
+    login
+      .trim()
+      .replace(/^@/, '')
+      .toLowerCase()
+      .replace(/\[bot\]$/, '');
   return bare(a) === bare(b);
 }
 
