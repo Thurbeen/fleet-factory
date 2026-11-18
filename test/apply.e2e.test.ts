@@ -56,14 +56,119 @@ function fleet(dir: string, ...args: string[]) {
   });
 }
 
+const PLUGIN = resolve(import.meta.dirname, '../src/plugin.ts');
+
+function operatorFleet(root: string) {
+  const config = join(root, 'fleet.toml');
+  writeFileSync(
+    config,
+    [
+      'version = 1',
+      '[data]',
+      'dir = "store"',
+      '[runtime]',
+      'kind = "fake"',
+      'dir = "fake"',
+      '[forge.hosts]',
+      '"github.com" = { kind = "github", cli = "gh" }',
+      '',
+    ].join('\n'),
+  );
+  return config;
+}
+
+function operatorPlugins(root: string, factories: string[]) {
+  const envFrom = (secret: string) =>
+    `[${factories.map((f) => `{ name = "${f}-secret-${secret}" }`).join(', ')}]`;
+  return [
+    '[plugins.fleet-factory]',
+    `program = "${process.execPath}"`,
+    `args = ["${PLUGIN}"]`,
+    `cwd = "${root}"`,
+    'tasks = "own"',
+    `envFrom = ${envFrom('board-token')}`,
+    '',
+    '[plugins.fleet-reviewer]',
+    `program = "${process.execPath}"`,
+    `args = ["${join(STUB_REVIEWER, 'src/plugin.ts')}"]`,
+    `cwd = "${STUB_REVIEWER}"`,
+    'callTimeoutMs = 15000',
+    'tasks = "own"',
+    `envFrom = [{ name = "operator-tokens" }, ${envFrom('reviewer-token').slice(1)}`,
+    '',
+  ].join('\n');
+}
+
+describe.skipIf(!FLEET)('factories on an operator-owned Fleet config', () => {
+  it('apply into it without writing it, and two factories share one store', () => {
+    const shared = mkdtempSync(join(tmpdir(), 'fleet-factory-shared-'));
+    const operator = operatorFleet(shared);
+    const factories = { acme: workspace(), beta: workspace() };
+    for (const [name, dir] of Object.entries(factories)) {
+      edit(join(dir, 'factory.local.json'), (l) => {
+        l.fleetConfig = operator;
+        l.fleetReviewer = STUB_REVIEWER;
+      });
+      edit(join(dir, 'factory.json'), (c) => {
+        c.name = name;
+        c.repositories = [{ name: `${name}-app`, url: `https://github.com/OWNER/${name}` }];
+      });
+    }
+    const onOperator = (...args: string[]) =>
+      spawnSync(FLEET!, ['--config', operator, ...args], { cwd: shared, encoding: 'utf8' });
+    const before = readFileSync(operator, 'utf8');
+
+    const plan = factory(factories.acme, 'plan');
+    expect(plan.code, plan.err).toBe(0);
+    expect(plan.out).toContain(`missing [plugins.fleet-factory] in ${operator}`);
+    expect(plan.out).toContain('envFrom = [{ name = "acme-secret-board-token" }]');
+    expect(plan.out).toContain('create TaskConfig/acme-factory-build');
+    expect(plan.out).toContain('create EnvProvider/acme-secret-board-token');
+    expect(plan.out).toContain('create TicketSource/acme-app');
+
+    const refused = factory(factories.acme, 'apply');
+    expect(refused.code).not.toBe(0);
+    expect(refused.err).toContain(operator);
+    expect(readFileSync(operator, 'utf8')).toBe(before);
+    expect(existsSync(join(factories.acme, '.fleet/fleet.toml'))).toBe(false);
+
+    writeFileSync(operator, `${before}\n${operatorPlugins(shared, ['acme', 'beta'])}`);
+    const withPlugins = readFileSync(operator, 'utf8');
+    for (const dir of Object.values(factories)) {
+      const apply = factory(dir, 'apply');
+      expect(apply.code, apply.err).toBe(0);
+    }
+    expect(readFileSync(operator, 'utf8')).toBe(withPlugins);
+    expect(existsSync(join(factories.acme, '.fleet/fleet.toml'))).toBe(false);
+
+    for (const name of Object.keys(factories)) {
+      const review = JSON.parse(onOperator('get', 'taskconfig', `${name}-factory-review`).stdout);
+      expect(review.metadata.labels['fleet-factory/managed']).toBe(name);
+      const source = JSON.parse(onOperator('get', 'ticketsource', `${name}-app`).stdout);
+      expect(source.spec.stages.refine.taskConfig).toBe(`${name}-factory-refine`);
+      const reviewSource = JSON.parse(onOperator('get', 'reviewsource', `${name}-app`).stdout);
+      expect(reviewSource.spec.review.taskConfig).toBe(`${name}-factory-review`);
+    }
+    for (const dir of Object.values(factories)) {
+      const again = factory(dir, 'plan');
+      expect(again.code, again.err).toBe(0);
+      expect(again.out).toContain('nothing to change');
+    }
+
+    const up = factory(factories.acme, 'up');
+    expect(up.code).not.toBe(0);
+    expect(up.err).toContain('fleetConfig');
+  });
+});
+
 describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
   it('plans without writing, applies once, then has nothing left to do', () => {
     const dir = workspace();
     const plan = factory(dir, 'plan');
     expect(plan.code, plan.err).toBe(0);
     expect(plan.out).toContain('create TicketSource/app');
-    expect(plan.out).toContain('create TaskConfig/factory-build');
-    expect(plan.out).toContain('create EnvProvider/secret-board-token');
+    expect(plan.out).toContain('create TaskConfig/acme-factory-build');
+    expect(plan.out).toContain('create EnvProvider/acme-secret-board-token');
     expect(existsSync(join(dir, '.fleet/fleet.toml'))).toBe(false);
 
     const apply = factory(dir, 'apply');
@@ -74,7 +179,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     const source = JSON.parse(fleet(dir, 'get', 'ticketsource', 'app').stdout);
     expect(source.spec.board).toMatchObject({ kind: 'github-issues', tokenEnv: 'GITHUB_TOKEN' });
     expect(source.metadata.labels['fleet-factory/managed']).toBe('acme');
-    const provider = JSON.parse(fleet(dir, 'get', 'envprovider', 'secret-board-token').stdout);
+    const provider = JSON.parse(fleet(dir, 'get', 'envprovider', 'acme-secret-board-token').stdout);
     expect(JSON.stringify(provider)).not.toContain('board-secret');
 
     const again = factory(dir, 'plan');
@@ -139,7 +244,9 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     const apply = factory(dir, 'apply');
     expect(apply.code, apply.err).toBe(0);
 
-    const provider = JSON.parse(fleet(dir, 'get', 'envprovider', 'secret-reviewer-token').stdout);
+    const provider = JSON.parse(
+      fleet(dir, 'get', 'envprovider', 'acme-secret-reviewer-token').stdout,
+    );
     const [source] = provider.spec.sources;
     const resolveProvider = () =>
       JSON.parse(
@@ -151,9 +258,9 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     const reviewSource = JSON.parse(fleet(dir, 'get', 'reviewsource', 'app').stdout);
     expect(reviewSource.spec.forge.login).toBe('REVIEWER_LOGIN');
 
-    const review = JSON.parse(fleet(dir, 'get', 'taskconfig', 'factory-review').stdout);
+    const review = JSON.parse(fleet(dir, 'get', 'taskconfig', 'acme-factory-review').stdout);
     expect(review.spec.env.GH_CONFIG_DIR).toBe(join(dir, '.fleet/github-app-gh'));
-    expect(review.spec.envFrom ?? []).not.toContainEqual({ name: 'secret-reviewer-token' });
+    expect(review.spec.envFrom ?? []).not.toContainEqual({ name: 'acme-secret-reviewer-token' });
     const sessionGh = () =>
       spawnSync('gh', ['pr', 'review', '--approve'], { env: review.spec.env, encoding: 'utf8' })
         .stdout;

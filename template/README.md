@@ -28,3 +28,8 @@ node FACTORY/bin/factory.ts up      # runs fleet up on that config, with telemet
 
 `apply` is idempotent: a second run prints `nothing to change`. The factory runs on its own
 Fleet config and data directory under `.fleet/`, so an existing Fleet config stays untouched.
+
+To run on an engine you already run, set `fleetConfig` in `factory.local.json` to its config
+file's absolute path. `plan` then prints the plugin entries that config needs. Add them
+yourself and restart that engine; `apply` refuses until they are there, and never writes
+that config. Run `up` only without `fleetConfig`.

@@ -58,7 +58,59 @@ function validateSecrets(secrets: Record<string, Secret>) {
   }
 }
 
-const provider = (name: string) => `secret-${name}`;
+type PluginEntry = {
+  name: string;
+  program: string;
+  args: string[];
+  cwd: string;
+  envFrom: string[];
+};
+
+const tomlString = (s: string) => JSON.stringify(s);
+
+function pluginToml(p: PluginEntry): string {
+  return [
+    `[plugins.${p.name}]`,
+    `program = ${tomlString(p.program)}`,
+    `args = [${p.args.map(tomlString).join(', ')}]`,
+    `cwd = ${tomlString(p.cwd)}`,
+    'tasks = "own"',
+    `envFrom = [${p.envFrom.map((n) => `{ name = ${tomlString(n)} }`).join(', ')}]`,
+  ].join('\n');
+}
+
+function tomlSection(toml: string, header: string): string | null {
+  const lines = toml.split('\n');
+  const start = lines.findIndex((l) => l.trim() === header);
+  if (start < 0) return null;
+  const end = lines.findIndex((l, i) => i > start && l.trim().startsWith('['));
+  return lines.slice(start + 1, end < 0 ? undefined : end).join('\n');
+}
+
+function tomlStrings(text: string): string[] {
+  return [...text.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'/g)].map((m) =>
+    m[2] !== undefined ? m[2] : JSON.parse(`"${m[1]}"`),
+  );
+}
+
+function tomlValue(section: string, key: string): string {
+  return section.match(new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`, 'm'))?.[1] ?? '';
+}
+
+function registration(toml: string, p: PluginEntry): 'present' | 'missing' | 'differs' {
+  const section = tomlSection(toml, `[plugins.${p.name}]`);
+  if (section === null) return 'missing';
+  const [program] = tomlStrings(tomlValue(section, 'program'));
+  const args = tomlStrings(tomlValue(section, 'args'));
+  const envFrom = [
+    ...tomlValue(section, 'envFrom').matchAll(/name\s*=\s*("[^"]*"|'[^']*')/g),
+  ].flatMap((m) => tomlStrings(m[1]));
+  const same =
+    program === p.program &&
+    JSON.stringify(args) === JSON.stringify(p.args) &&
+    p.envFrom.every((n) => envFrom.includes(n));
+  return same ? 'present' : 'differs';
+}
 
 const apiUrl = (app: GitHubApp) => (app.apiUrl ?? 'https://api.github.com').replace(/\/+$/, '');
 
@@ -88,8 +140,10 @@ function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, str
   };
 }
 
-function render(config: J, local: J, dir: string) {
+function render(config: J, local: J, dir: string, pluginCwd: string) {
   const secrets: Record<string, Secret> = local.secrets ?? {};
+  const scoped = (name: string) => `${config.name}-${name}`;
+  const provider = (secret: string) => scoped(`secret-${secret}`);
   validateSecrets(secrets);
   const labels = { [MANAGED]: String(config.name) };
   const boardSecret = secretRef(config.board?.token, 'board.token', secrets);
@@ -116,7 +170,7 @@ function render(config: J, local: J, dir: string) {
     };
     if (Object.keys(env).length) spec.env = env;
     if (frozen.length) spec.envFrom = frozen.map((r: string) => ({ name: provider(r) }));
-    objects.push({ kind: 'TaskConfig', name, spec });
+    objects.push({ kind: 'TaskConfig', name: scoped(name), spec });
   }
 
   const review = config.stages?.review;
@@ -142,16 +196,20 @@ function render(config: J, local: J, dir: string) {
   }
 
   for (const repo of config.repositories ?? []) {
-    const stages: J = { refine: { taskConfig: config.stages.refine.taskConfig } };
+    const stages: J = { refine: { taskConfig: scoped(config.stages.refine.taskConfig) } };
     if (config.stages.build)
       stages.build = {
-        taskConfig: config.stages.build.taskConfig,
+        taskConfig: scoped(config.stages.build.taskConfig),
         ...(config.stages.build.readyPolicy
           ? { readyPolicy: config.stages.build.readyPolicy }
           : {}),
       };
     if (review?.login) stages.review = { approver: review.login };
-    if (config.stages.watch) stages.watch = { ...config.stages.watch };
+    if (config.stages.watch)
+      stages.watch = {
+        ...config.stages.watch,
+        taskConfig: scoped(config.stages.watch.taskConfig),
+      };
     const spec: J = {
       board: {
         kind: config.board.kind,
@@ -182,7 +240,7 @@ function render(config: J, local: J, dir: string) {
           repositories: [{ project }],
           filters: { requireLabels: [config.board.intakeLabel ?? 'factory'], ...review.filters },
           review: {
-            taskConfig: review.taskConfig,
+            taskConfig: scoped(review.taskConfig),
             ...(review.approveAt ? { approveAt: review.approveAt } : {}),
           },
         },
@@ -190,13 +248,32 @@ function render(config: J, local: J, dir: string) {
     }
   }
 
-  const q = (s: string) => JSON.stringify(s);
+  const plugins: PluginEntry[] = [
+    {
+      name: 'fleet-factory',
+      program: process.execPath,
+      args: [PLUGIN],
+      cwd: pluginCwd,
+      envFrom: [...new Set([boardSecret, forgeSecret])].map(provider),
+    },
+    ...(reviewerSecret
+      ? [
+          {
+            name: 'fleet-reviewer',
+            program: process.execPath,
+            args: [join(local.fleetReviewer, 'src/plugin.ts')],
+            cwd: local.fleetReviewer,
+            envFrom: [provider(reviewerSecret)],
+          },
+        ]
+      : []),
+  ];
+
+  const q = tomlString;
   const table = (o: J) =>
     Object.entries(o)
       .map(([k, v]) => `${k} = ${typeof v === 'string' ? q(v) : JSON.stringify(v)}`)
       .join('\n');
-  const envFrom = (names: string[]) =>
-    `[${names.map((n) => `{ name = ${q(provider(n))} }`).join(', ')}]`;
   const host = new URL(config.repositories?.[0]?.url ?? 'https://github.com').host;
   const toml = [
     'version = 1',
@@ -223,29 +300,13 @@ function render(config: J, local: J, dir: string) {
     'botReviewsAddressed = true',
     'checksPassed = true',
     'noUnresolvedThreads = true',
-    '',
-    '[plugins.fleet-factory]',
-    `program = ${q(process.execPath)}`,
-    `args = [${q(PLUGIN)}]`,
-    `cwd = ${q(dir)}`,
-    'tasks = "own"',
-    `envFrom = ${envFrom([...new Set([boardSecret, forgeSecret])])}`,
-    ...(reviewerSecret
-      ? [
-          '',
-          '[plugins.fleet-reviewer]',
-          `program = ${q(process.execPath)}`,
-          `args = [${q(join(local.fleetReviewer, 'src/plugin.ts'))}]`,
-          `cwd = ${q(local.fleetReviewer)}`,
-          'tasks = "own"',
-          `envFrom = ${envFrom([reviewerSecret])}`,
-        ]
-      : []),
+    ...plugins.flatMap((p) => ['', pluginToml(p)]),
     '',
   ].join('\n');
 
   return {
     toml,
+    plugins,
     objects: objects.map((o) => ({
       apiVersion: 'fleet/v1alpha1',
       kind: o.kind,
@@ -278,9 +339,16 @@ function main(argv: string[]): number {
   const local = read(join(cwd, 'factory.local.json'));
   const fleetBin = String(local.fleetBin ?? 'fleet');
   const dir = join(cwd, '.fleet');
-  const tomlPath = join(dir, 'fleet.toml');
+  const operatorConfig = local.fleetConfig === undefined ? null : String(local.fleetConfig);
+  if (operatorConfig !== null && !operatorConfig.startsWith('/'))
+    throw new ConfigError('fleetConfig: must be an absolute path');
+  const tomlPath = operatorConfig ?? join(dir, 'fleet.toml');
 
   if (command === 'up') {
+    if (operatorConfig)
+      throw new ConfigError(
+        `fleetConfig names ${operatorConfig}, whose engine you run; factory up starts only a factory's own engine`,
+      );
     const endpoint = config.observability?.fleetExport?.endpoint;
     const r = spawnSync(fleetBin, ['--config', tomlPath, 'up'], {
       stdio: 'inherit',
@@ -289,15 +357,30 @@ function main(argv: string[]): number {
     return r.status ?? 1;
   }
 
-  const { toml, objects } = render(config, local, dir);
+  const { toml, plugins, objects } = render(config, local, dir, operatorConfig ? ROOT : dir);
   const lines: string[] = [];
-  const tomlChanged = !existsSync(tomlPath) || readFileSync(tomlPath, 'utf8') !== toml;
-  if (tomlChanged) lines.push(`${existsSync(tomlPath) ? 'update' : 'create'} ${tomlPath}`);
+  const unregistered: string[] = [];
+  let tomlChanged = false;
+  if (operatorConfig) {
+    if (!existsSync(operatorConfig))
+      throw new ConfigError(`fleetConfig: ${operatorConfig} does not exist`);
+    const operatorToml = readFileSync(operatorConfig, 'utf8');
+    for (const p of plugins) {
+      const state = registration(operatorToml, p);
+      if (state === 'present') continue;
+      unregistered.push(`[plugins.${p.name}]`);
+      lines.push(`${state} [plugins.${p.name}] in ${operatorConfig}; it needs:\n${pluginToml(p)}`);
+    }
+  } else {
+    tomlChanged = !existsSync(tomlPath) || readFileSync(tomlPath, 'utf8') !== toml;
+    if (tomlChanged) lines.push(`${existsSync(tomlPath) ? 'update' : 'create'} ${tomlPath}`);
+  }
+  const storeKnown = existsSync(tomlPath);
 
   const changed: J[] = [];
   for (const o of objects) {
     const id = `${o.kind}/${o.metadata.name}`;
-    if (!existsSync(tomlPath)) {
+    if (!storeKnown) {
       lines.push(`create ${id}`);
       changed.push(o);
       continue;
@@ -324,6 +407,10 @@ function main(argv: string[]): number {
   }
   process.stdout.write(`${lines.join('\n')}\n`);
   if (command === 'plan') return 0;
+  if (unregistered.length)
+    throw new ConfigError(
+      `add ${unregistered.join(' and ')} to ${operatorConfig} as plan prints them, then apply again`,
+    );
 
   if (tomlChanged) {
     mkdirSync(dirname(tomlPath), { recursive: true });
@@ -331,6 +418,7 @@ function main(argv: string[]): number {
     renameSync(`${tomlPath}.tmp`, tomlPath);
   }
   if (changed.length) {
+    mkdirSync(dir, { recursive: true });
     const file = join(dir, 'apply.json');
     writeFileSync(file, JSON.stringify({ items: changed }));
     const r = fleet(fleetBin, tomlPath, 'apply', '-f', file);
