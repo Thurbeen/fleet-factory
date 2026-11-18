@@ -110,6 +110,12 @@ describe.skipIf(!FLEET)('a4: only a person decides a human-owned area', () => {
     expect(ticket(env).status.phase).toBe('NeedsDecision');
     expect(env.ticket(1).labels).toContain('factory:needs-decision');
     expect(env.ticket(1).labels).not.toContain('factory:refined');
+
+    env.setTicket({ number: 1, author: MAINTAINER });
+    env.sweep(2);
+    expect(ticket(env).status.phase).toBe('Refined');
+    expect(env.ticket(1).labels).toContain('factory:refined');
+    expect(env.ticket(1).labels).not.toContain('factory:needs-decision');
   });
 
   it('reads account types and the issue author from GitHub', async () => {

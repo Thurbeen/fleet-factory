@@ -266,12 +266,14 @@ export function reconcile(req: J): J {
   } else {
     const r = refinement(result, spec.humanDecisions, humanDeciders(ticket!, relayed));
     status.refinement = r;
-    if (status.posted !== r.generation || st.refinement?.state !== r.state) {
+    const flipped = status.posted === r.generation && st.refinement?.state !== r.state;
+    if (status.posted !== r.generation || flipped) {
       const refined = r.state === 'refined';
+      const post = flipped ? `${r.generation}/${r.state}/${now}` : `${r.generation}`;
       status.phase = refined ? 'Refined' : 'NeedsDecision';
       plan.effects = [
         {
-          key: `refinement/${r.generation}/${r.state}`,
+          key: `refinement/${post}`,
           request: {
             op: 'comment',
             board,
@@ -281,7 +283,7 @@ export function reconcile(req: J): J {
           },
         },
         {
-          key: `labels/${r.generation}/${r.state}`,
+          key: `labels/${post}`,
           request: {
             op: 'labels',
             board,
