@@ -5,19 +5,19 @@
     "kind": "github-issues",
     "project": "OWNER/app",
     "intakeLabel": "factory",
-    "token": { "secret": "board-token" }
+    "token": { "secret": "author-app" }
   },
-  "forge": { "kind": "github", "token": { "secret": "board-token" } },
+  "forge": { "kind": "github", "token": { "secret": "author-app" } },
   "repositories": [{ "name": "app", "url": "https://github.com/OWNER/app", "branch": "main" }],
   "taskConfigs": {
-    "factory-refine": { "harness": "claude", "host": "local" },
-    "factory-build": { "harness": "claude", "host": "local" },
-    "factory-review": { "harness": "claude", "host": "local" },
+    "factory-refine": { "harness": "claude", "host": "local", "secrets": ["author-app"] },
+    "factory-build": { "harness": "claude", "host": "local", "secrets": ["author-app"] },
+    "factory-review": { "harness": "claude", "host": "local", "secrets": ["reviewer-app"] },
     "factory-watch": {
       "harness": "claude",
       "host": "local",
       "env": { "OBS_KIND": "grafana", "OBS_URL": "https://grafana.example.com" },
-      "secrets": ["observability-token"]
+      "secrets": ["author-app", "observability-token"]
     }
   },
   "stages": {
@@ -25,8 +25,8 @@
     "build": { "taskConfig": "factory-build", "readyPolicy": "checks-and-bots" },
     "review": {
       "taskConfig": "factory-review",
-      "login": "REVIEWER_LOGIN",
-      "token": { "secret": "reviewer-token" },
+      "login": "REVIEWER_APP_SLUG[bot]",
+      "token": { "secret": "reviewer-app" },
       "approveAt": 4
     },
     "watch": { "taskConfig": "factory-watch", "afterMs": 86400000 }

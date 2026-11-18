@@ -12,24 +12,34 @@ explains each stage and gate.
 - A `fleet` binary from [Thurbeen/thurbox](https://github.com/Thurbeen/thurbox/releases)
   v3.1.0 or later.
 - A checkout of fleet-reviewer that knows `forge.login`.
-- `gh`, which the example `board-token` source runs.
-- A GitHub token or App that can write issues and pull requests on the target repository.
+- `gh`, which the sessions and Fleet's forge host run.
+- Two GitHub Apps on the target repository: an author App that can write contents, issues
+  and pull requests, and a reviewer App that can write pull requests.
 
 ## Fill it
 
 1. Edit `factory.json`. Every secret is a reference, `{"secret": "NAME"}`, never a value.
 
-2. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
-   differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
-   and the source of each secret, a file or a command with absolute paths.
-   Add `"as": "REVIEWER_TOKEN"` to `reviewer-token`; see [Secrets](#secrets). For a GitHub
-   App as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+2. Create two GitHub Apps and install each on the target repository. The author App, with
+   write access to contents, issues and pull requests, serves the board, the merge gate,
+   Fleet's reads of each change, and the refine, build and watch sessions. The reviewer App,
+   with write access to pull requests, reviews and approves. GitHub never counts an approval
+   by a change's author, so `factory plan` refuses one identity on both sides.
 
-3. On the target repository, require a pull request with one approval, resolved threads and
+3. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
+   differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
+   and the source of each secret with absolute paths. A `githubApp` source names an App, its
+   installation and its private key file, and the factory mints a fresh token for each use.
+   A `command` or `file` source, such as a personal token, still works; see [Secrets](#secrets)
+   and [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#the-factorys-identities).
+
+4. Set `stages.review.login` to the reviewer App's login, `APP_SLUG[bot]`.
+
+5. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
    rules.
 
-4. Create the three labels a person sets:
+6. Create the three labels a person sets:
 
    ```sh
    gh label create factory -R OWNER/app
@@ -41,8 +51,8 @@ explains each stage and gate.
 
 | Secret | Used by |
 | --- | --- |
-| `board-token` | The plugin, as its board and forge token |
-| `reviewer-token` | fleet-reviewer, from a `file` or a `githubApp` source |
+| `author-app` | The plugin, as its board and forge token; Fleet's forge host; the refine, build and watch sessions' `gh` and `git push` |
+| `reviewer-app` | fleet-reviewer and the review session |
 | `observability-token` | The watch TaskConfig, `factory-watch` |
 
 `as` names the environment variable a source sets. Every secret needs `as`, except a `file`
@@ -77,8 +87,9 @@ Fleet config, `.fleet/fleet.toml`, and data directory under `.fleet/`, so an exi
 config stays untouched.
 
 To run on an engine you already run, set `fleetConfig` in `factory.local.json` to its config
-file's absolute path. `plan` then prints the plugin entries that config needs. Add them
-yourself and restart that engine; `apply` refuses until they are there, and never writes
+file's absolute path. `plan` then prints the plugin entries that config needs, and, with an
+author App, the `[forge.hosts]` line that runs Fleet's `gh` as that App. Add them yourself
+and restart that engine; `apply` refuses until they are there, and never writes
 that config. Run `up` only without `fleetConfig`.
 
 ## Put a ticket through
@@ -87,7 +98,8 @@ that config. Run `up` only without `fleetConfig`.
 describes each stage. A person:
 
 1. Labels the issue `factory`.
-2. Answers each question the factory posts on it, in a comment.
+2. Answers each question the factory posts on it, in a comment of their own with no worker
+   mark. Only a `User` account with write access decides a human-owned area.
 3. Sets `factory:ready` to start the build.
 4. Waits for the forge to merge the factory's change. To stop it, set `factory:hold` on the
    issue before fleet-reviewer approves; after that, disable auto-merge on the pull request.
