@@ -58,6 +58,7 @@ source that only a TaskConfig reads.
 | `factory:needs-decision` | The plugin | A question on the ticket waits for a person |
 | `factory:refined` | The plugin | The decisions are on the ticket and no question is open |
 | `factory:proposed` | The plugin | A follow-up ticket from a watch finding; `policy.followUps.label` |
+| `factory:regression`, `factory:improvement` | The plugin | The kind of watch finding behind a follow-up ticket |
 
 GitHub creates a missing label when the plugin adds it, so only the first three need setting up.
 
