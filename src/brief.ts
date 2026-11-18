@@ -125,7 +125,8 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `   merge it: Fleet and the factory do that once the checks and the review pass.`,
     `6. Stay on the change until Fleet marks the change ready, or until it is merged or closed.`,
     `   Answer each check failure, review note and amendment that reaches you with new pushes.`,
-    `   Never record a result while the change is a draft.`,
+    `   Never record a result while the change is a draft. Never resolve a review thread: the`,
+    `   reviewer resolves its own once its review of the head with your fix confirms it.`,
     `7. Then record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
   ].join('\n');
 }
