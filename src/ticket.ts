@@ -22,6 +22,7 @@ import {
   condition,
   deleting,
   known,
+  sameLogin,
   sourceSpec,
 } from './util.ts';
 
@@ -158,9 +159,11 @@ function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null 
   const head = s.head?.id;
   if (!head || s.state?.value !== 'open' || !s.everReady) return null;
   if (s.head?.checks !== 'passed' || Number(s.threads?.unresolved ?? 1) !== 0) return null;
-  if (!spec.approver || ticket.labels.includes(spec.merge.holdLabel)) return null;
+  const approver = spec.approver;
+  if (!approver || ticket.labels.includes(spec.merge.holdLabel)) return null;
   const approved = (s.reviews ?? []).some(
-    (r: J) => r.author === spec.approver && r.state === 'approved' && r.head === head,
+    (r: J) =>
+      sameLogin(String(r.author ?? ''), approver) && r.state === 'approved' && r.head === head,
   );
   return approved ? head : null;
 }

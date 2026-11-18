@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+shim_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+PATH=$(printf '%s\n' "$PATH" | tr ':' '\n' | grep -vxF "$shim_dir" | paste -sd: -)
+GH_TOKEN=$("$FACTORY_NODE" "$shim_dir/../github-app-token.ts" \
+  --app-id "$FACTORY_GITHUB_APP_ID" \
+  --installation-id "$FACTORY_GITHUB_INSTALLATION_ID" \
+  --key-file "$FACTORY_GITHUB_APP_KEY_FILE" \
+  --api-url "$FACTORY_GITHUB_API_URL")
+GH_ENTERPRISE_TOKEN=$GH_TOKEN
+export PATH GH_TOKEN GH_ENTERPRISE_TOKEN
+exec gh "$@"

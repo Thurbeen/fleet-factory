@@ -57,6 +57,14 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(env.list('ticket')[0].status.change).toMatchObject({ url: CHANGE, head: HEAD });
   });
 
+  it('merges on the approval of a GitHub App, which Fleet records without its [bot] suffix', () => {
+    const { env } = building({ review: { approver: 'Review-App[bot]' } });
+    approve(env, {
+      reviews: [{ id: 'r1', author: 'review-app', state: 'approved', head: HEAD }],
+    });
+    expect(env.merges()).toEqual([{ url: CHANGE, head: HEAD, method: 'squash' }]);
+  });
+
   it('never merges while the ticket holds factory:hold, or on an approval of another head', () => {
     const { env } = building();
     env.setTicket({ number: 1, labels: ['factory', 'factory:ready', 'factory:hold'] });

@@ -10,7 +10,8 @@ explains each stage and gate.
 1. Edit `factory.json`. Every secret is a reference, `{"secret": "NAME"}`, never a value.
 2. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
    differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
-   and the source of each secret, a file or a command with absolute paths.
+   and the source of each secret, a file or a command with absolute paths. For a GitHub App
+   as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
    rules.

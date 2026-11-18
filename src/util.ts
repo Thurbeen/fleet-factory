@@ -10,6 +10,11 @@ export const MARKER_REFINEMENT = 'refinement';
 export const ACTIVE_PHASES = ['Pending', 'Spawning', 'Spawned', 'Briefed'];
 export const WRITERS = ['admin', 'maintain', 'write'];
 
+export function sameLogin(a: string, b: string): boolean {
+  const bare = (login: string) => login.toLowerCase().replace(/\[bot\]$/, '');
+  return bare(a) === bare(b);
+}
+
 export function marker(name: string): string {
   return `<!-- ${PLUGIN}:${name} -->`;
 }

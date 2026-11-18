@@ -190,7 +190,7 @@ its gate holds.
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
-| Merge | Fleet marked the change ready; its checks passed; fleet-reviewer approved the current head; no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
+| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head; no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
 | Release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
 | Watch | A release contains the merge commit, and the watch window has passed. | GitHub Release, 24 hours. |
 | Follow-up | Findings exist and the parent has fewer than the cap of follow-ups. | Label `factory:proposed`, cap 3. |
@@ -276,6 +276,8 @@ fleet-factory/                  this repository
   src/                          the plugin
   bin/factory.ts                plan, apply, up
   bin/secret-env.ts             turns a secret command's output into an env JSON object
+  bin/github-app-token.ts       prints a fresh installation token of a GitHub App
+  bin/github-app-gh/gh          a gh that runs with a fresh installation token each call
   schema/factory.schema.json    the config's JSON Schema
   template/
     factory.json                the one file a user fills
@@ -299,6 +301,48 @@ checkouts, the Fleet runtime section, and the source of each secret.
 
 [`template/factory.local.example.json`](../template/factory.local.example.json) shows it.
 
+### A GitHub App as the reviewer
+
+A GitHub App can review and approve the factory's changes. Its installation token expires
+one hour after GitHub issues it. A review Task stays open until its change merges, and Fleet
+freezes a Task's environment at launch. A token in that environment therefore expires.
+
+A `githubApp` secret source holds no token. It names the App, its installation and its
+private key file:
+
+```json
+"reviewer-token": {
+  "githubApp": {"appId": "APP_ID", "installationId": "INSTALLATION_ID",
+                "keyFile": "/ABSOLUTE/PATH/app.private-key.pem"},
+  "as": "REVIEWER_TOKEN"
+}
+```
+
+`apiUrl` is optional. Its default is `https://api.github.com`.
+
+The apply renders this source in two ways:
+
+- The secret's EnvProvider runs `bin/github-app-token.ts`. Fleet resolves the plugin's
+  `envFrom` for each sweep, so fleet-reviewer reads a fresh token at each sweep.
+- A TaskConfig that names the secret in `secrets` gets no token. It gets `PATH` with
+  `bin/github-app-gh` first, and the App's ids and key file path. Each `gh` call in the
+  session then runs with a fresh token.
+- The `ReviewSource` gets `forge.login` from `stages.review.login`. GitHub does not let an
+  installation token read its own login. This field needs a fleet-reviewer that knows
+  `forge.login`.
+
+A TaskConfig can name at most one `githubApp` secret. The wrapper goes before the `PATH`
+of the TaskConfig's `env`. Without one, it goes before the `PATH` of the apply. Give
+`env.PATH` to make the apply give the same result from each shell.
+
+The TaskConfig also gets `GH_CONFIG_DIR`, an empty directory under `.fleet/`. A `gh` that
+does not go through the wrapper then has no login, and it fails. It does not post as the
+person whose `gh` login the host has.
+
+Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate compares
+logins without regard to case and to a final `[bot]`. GitHub's GraphQL API, which Fleet
+reads, names an App without the suffix.
+
 ### One apply
 
 ```text
@@ -317,7 +361,8 @@ The apply is idempotent. A second run with the same input writes nothing.
    `bin/secret-env.ts`; one TaskConfig per stage; one `TicketSource` per repository; one
    `ReviewSource` per repository, scoped with `requireLabels: ["factory"]`, so it
    reviews only the factory's changes, and `review.approveAt` from the config. The build Task
-   labels its change `factory`.
+   labels its change `factory`. `stages.review.filters` adds to or replaces the
+   `ReviewSource` filters.
 4. Read each resource with `fleet get`, and compare it with the rendered one.
 5. Print the plan: created, changed, unchanged, and managed objects no longer in the
    config.
