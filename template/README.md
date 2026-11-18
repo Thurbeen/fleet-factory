@@ -20,8 +20,9 @@ explains each stage and gate.
 1. Edit `factory.json`. Every secret is a reference, `{"secret": "NAME"}`, never a value.
 2. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
    differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
-   and the source of each secret, a file or a command with absolute paths. For a GitHub App
-   as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+   and the source of each secret, a file or a command with absolute paths.
+   Add `"as": "REVIEWER_TOKEN"` to `reviewer-token`; see [Secrets](#secrets). For a GitHub
+   App as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
    rules.
@@ -41,8 +42,8 @@ explains each stage and gate.
 | `reviewer-token` | fleet-reviewer, from a `file` or a `githubApp` source |
 | `observability-token` | The watch TaskConfig, `factory-watch` |
 
-`as` names the environment variable a source sets. A `command` source that the plugin or a
-TaskConfig reads needs it, and so does a `githubApp` source.
+`as` names the environment variable a source sets. Every secret needs `as`, except a `file`
+source that only a TaskConfig reads.
 
 ### Labels
 
@@ -50,7 +51,7 @@ TaskConfig reads needs it, and so does a `githubApp` source.
 | --- | --- | --- |
 | `factory` | A person | Puts the ticket into the factory; `board.intakeLabel` |
 | `factory:ready` | A person | Starts the build when `policy.buildGate` is `label` |
-| `factory:hold` | A person | Stops the merge; `merge.holdLabel` |
+| `factory:hold` | A person | On the issue, stops the auto-merge request; `merge.holdLabel` |
 | `factory:needs-decision` | The plugin | A question on the ticket waits for a person |
 | `factory:refined` | The plugin | The decisions are on the ticket and no question is open |
 | `factory:proposed` | The plugin | A follow-up ticket from a watch finding; `policy.followUps.label` |
@@ -84,4 +85,5 @@ describes each stage. A person:
 1. Labels the issue `factory`.
 2. Answers each question the factory posts on it, in a comment.
 3. Sets `factory:ready` to start the build.
-4. Waits for the forge to merge the factory's change. `factory:hold` stops the merge.
+4. Waits for the forge to merge the factory's change. To stop it, set `factory:hold` on the
+   issue before fleet-reviewer approves; after that, disable auto-merge on the pull request.
