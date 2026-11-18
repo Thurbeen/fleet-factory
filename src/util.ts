@@ -54,6 +54,7 @@ export function sourceSpec(spec: J) {
     build: {
       taskConfig: spec?.stages?.build?.taskConfig as string | undefined,
       readyPolicy: spec?.stages?.build?.readyPolicy as string | undefined,
+      stuckAfterMs: Number(spec?.stages?.build?.stuckAfterMs ?? 14_400_000),
     },
     approver: spec?.stages?.review?.approver as string | undefined,
     watch: {

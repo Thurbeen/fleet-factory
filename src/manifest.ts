@@ -52,7 +52,11 @@ const ticketSourceSpec = {
           type: 'object',
           additionalProperties: false,
           required: ['taskConfig'],
-          properties: { taskConfig: str, readyPolicy: str },
+          properties: {
+            taskConfig: str,
+            readyPolicy: str,
+            stuckAfterMs: { type: 'integer', minimum: 1 },
+          },
         },
         watch: {
           type: 'object',

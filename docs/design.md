@@ -144,7 +144,7 @@ so the ticket board is a `TicketSource`.
 
 | Kind | One per | Spec (abridged) | Creates |
 | --- | --- | --- | --- |
-| `TicketSource` | Board scope and target repository | `board` (adapter kind, project, intake label), `repository` (URL, branch), `stages` (TaskConfig per stage, ready policy, watch window), `policy` (build gate, `maxActive` per stage, human-owned decision areas, follow-up label and cap), `release` (signal) | One `Ticket` per labelled open ticket |
+| `TicketSource` | Board scope and target repository | `board` (adapter kind, project, intake label), `repository` (URL, branch), `stages` (TaskConfig per stage, ready policy, build stuck bound, watch window), `policy` (build gate, `maxActive` per stage, human-owned decision areas, follow-up label and cap), `release` (signal) | One `Ticket` per labelled open ticket |
 | `Ticket` | Ticket | `source`, `key` (`github:OWNER/app#42`), `url`. Immutable: a mirror's identity is its spec. | The refine, build and watch Tasks of this ticket |
 
 Stage Tasks are named `<ticket>-refine`, `<ticket>-build` and `<ticket>-watch`, and carry
@@ -159,7 +159,10 @@ stateDiagram-v2
   NeedsDecision --> Refining: answer on the ticket, Task amended
   Refining --> Refined: result with no open question
   Refined --> Building: build gate holds
+  Building --> Building: draft head failed, build Task concluded, amended once per head
   Building --> InReview: change declared, ready policy held
+  Building --> Stuck: draft head unchanged for stuckAfterMs, or concluded with no change
+  Stuck --> Building: a new head on the change
   InReview --> Building: findings relayed
   InReview --> Merging: merge gate holds, auto-merge requested
   Merging --> Building: a new push or a blocking finding
@@ -172,6 +175,15 @@ stateDiagram-v2
   Refining --> Dropped: label removed or ticket closed
   Building --> Dropped: change closed unmerged
 ```
+
+The build Task stays on its change until Fleet marks it ready, or it is merged or closed;
+only then does it record its result. While it builds, `status.change` holds the change's URL
+and current head. If the Task concludes while its change is a draft whose head checks failed,
+the plugin amends the same Task once per head, naming the failing checks. A draft head
+unchanged for `stages.build.stuckAfterMs` (default 4 hours, from Fleet's `head.firstSeenAt`),
+or a build Task that concluded with no change, moves the Ticket to `Stuck`, with condition
+`Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck Ticket amends, deletes
+and posts nothing; a new head returns it to `Building`.
 
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
