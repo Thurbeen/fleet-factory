@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Env, FLEET } from './fleet-env.ts';
+import { type Env, FLEET, PROJECT } from './fleet-env.ts';
 import { CHANGE, GUARDED, HEAD, approve, building, phase, refined } from './flows.ts';
 
 describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
@@ -77,5 +77,102 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     });
     expect(env.merges()).toHaveLength(0);
     expect(phase(env)).toBe('InReview');
+  });
+});
+
+const NEXT = 'c'.repeat(40);
+const TICKET = `${PROJECT}#1`;
+const failed = (id: string) => ({
+  id,
+  checks: 'failed',
+  failing: [{ name: 'CI', url: `https://forge.test/ci/${id.slice(0, 7)}` }],
+});
+const mine = (env: Env) =>
+  (env.stageTask('build').spec.amendments ?? []).filter(
+    (a: any) => a.from === 'plugin/fleet-factory',
+  );
+const conclude = (env: Env) =>
+  env.result(env.stageTask('build').metadata.name, { changeUrl: CHANGE });
+const progressing = (env: Env) =>
+  env.list('ticket')[0].status.conditions.find((c: any) => c.type === 'Progressing');
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const STUCK_MS = 4000;
+const stuckAfter = {
+  build: { taskConfig: 'factory-build', readyPolicy: 'checks', stuckAfterMs: STUCK_MS },
+};
+
+describe.skipIf(!FLEET)('the build stage stays on its change until it is ready', () => {
+  it('amends the concluded build Task once per failed draft head', () => {
+    const { env } = building();
+    conclude(env);
+    env.setChange(11, { state: 'draft', head: failed(HEAD) });
+    env.sweep(3);
+    expect(
+      env.list('task').filter((t) => t.metadata.labels?.['fleet-factory/stage'] === 'build'),
+    ).toHaveLength(1);
+    expect(mine(env)).toHaveLength(1);
+    expect(mine(env)[0].text).toContain(HEAD);
+    expect(mine(env)[0].text).toContain('CI');
+    expect(mine(env)[0].reason).toContain(`feature.ticket="${TICKET}"`);
+
+    env.sweep(3);
+    expect(mine(env)).toHaveLength(1);
+
+    conclude(env);
+    env.setChange(11, { state: 'draft', head: failed(NEXT) });
+    env.sweep(3);
+    expect(mine(env)).toHaveLength(2);
+    expect(mine(env)[1].text).toContain(NEXT);
+  });
+
+  it('records the build result only once the change is ready, merged or closed', () => {
+    const { build } = building();
+    const brief: string = build.spec.brief;
+    const waits = brief.indexOf('until Fleet marks the change ready');
+    expect(waits).toBeGreaterThan(-1);
+    expect(brief.indexOf('fleet result')).toBeGreaterThan(waits);
+    expect(brief).toContain('Never record a result while the change is a draft');
+  });
+
+  it('shows the declared change and follows its head while building', () => {
+    const { env } = building();
+    expect(env.list('ticket')[0].status.change).toMatchObject({
+      url: CHANGE,
+      head: HEAD,
+      merged: false,
+    });
+    env.setChange(11, { state: 'draft', head: { id: NEXT, checks: 'pending' } });
+    env.sweep(2);
+    expect(env.list('ticket')[0].status.change).toMatchObject({ head: NEXT, merged: false });
+  });
+
+  it('moves a draft that stops moving to Stuck, and back to Building on a new head', async () => {
+    const { env } = building(stuckAfter);
+    const comments = env.ticket(1).comments.length;
+    await pause(STUCK_MS + 500);
+    env.sweep(2);
+    expect(phase(env)).toBe('Stuck');
+    expect(progressing(env)).toMatchObject({ status: 'False', reason: 'ChangeStuck' });
+    expect(progressing(env).message).toContain(CHANGE);
+    expect(progressing(env).message).toContain(HEAD);
+    expect(env.stageTask('build')).toBeDefined();
+    expect(env.ticket(1).comments).toHaveLength(comments);
+    expect(env.merges()).toHaveLength(0);
+
+    env.setChange(11, { state: 'draft', head: { id: NEXT, checks: 'pending' } });
+    env.sweep(2);
+    expect(phase(env)).toBe('Building');
+    expect(progressing(env)).toMatchObject({ status: 'True' });
+  });
+
+  it('moves a build Task that concluded with no change to Stuck with NoChange', () => {
+    const env = refined();
+    env.setTicket({ number: 1, labels: ['factory', 'factory:refined', 'factory:ready'] });
+    env.sweep(2);
+    conclude(env);
+    env.sweep(2);
+    expect(phase(env)).toBe('Stuck');
+    expect(progressing(env)).toMatchObject({ status: 'False', reason: 'NoChange' });
+    expect(env.stageTask('build')).toBeDefined();
   });
 });
