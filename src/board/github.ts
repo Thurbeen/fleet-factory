@@ -1,5 +1,5 @@
 import { type Board, type BoardRef, type CommentView, type TicketView, Unknown } from './types.ts';
-import { PLUGIN, marker } from '../util.ts';
+import { PLUGIN, marker, tokenFrom } from '../util.ts';
 
 const PAGE = 100;
 const MAX_PAGES = 10;
@@ -9,8 +9,7 @@ function api(ref: BoardRef): string {
 }
 
 async function call(ref: BoardRef, method: string, path: string, body?: unknown): Promise<any> {
-  const token = process.env[ref.tokenEnv ?? 'GITHUB_TOKEN'];
-  if (!token) throw new Unknown(`${ref.tokenEnv ?? 'GITHUB_TOKEN'} is not set`);
+  const token = tokenFrom(ref.tokenEnv);
   let res: Response;
   try {
     res = await fetch(`${api(ref)}${path}`, {

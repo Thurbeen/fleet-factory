@@ -25,7 +25,7 @@ const ticketSourceSpec = {
       type: 'object',
       additionalProperties: false,
       required: ['url'],
-      properties: { url: { type: 'string', pattern: '^https://' }, branch: str },
+      properties: { url: { type: 'string', pattern: LOCAL_OR_HTTPS }, branch: str },
     },
     forge: {
       type: 'object',

@@ -181,7 +181,7 @@ describe.skipIf(!FLEET)('every factory GitHub action runs as the author App', ()
 
     sweep(dir, 2);
     const source = get(dir, 'ticketsource', 'app');
-    expect(JSON.stringify(source.status)).toContain('github-app-token');
+    expect(source.status.unknown.why).toContain('github-app-token: HTTP 401');
     expect(credentials((await state(api)).requests)).toEqual([]);
 
     const gh = spawnSync('gh', ['pr', 'view'], {

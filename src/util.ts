@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Unknown } from './board/types.ts';
 
 export type J = any;
 
@@ -19,6 +20,13 @@ export function sameLogin(a: string, b: string): boolean {
       .toLowerCase()
       .replace(/\[bot\]$/, '');
   return bare(a) === bare(b);
+}
+
+export function tokenFrom(env: string | undefined): string {
+  const name = env ?? 'GITHUB_TOKEN';
+  const token = process.env[name];
+  if (!token) throw new Unknown(process.env[`${name}_ERROR`] ?? `${name} is not set`);
+  return token;
 }
 
 export function marker(name: string): string {
