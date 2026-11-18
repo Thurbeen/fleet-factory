@@ -83,9 +83,15 @@ flowchart TD
       the worker mark on every post.
 6. **Review.** Fleet follows the declared change. When the ready policy holds, Fleet takes
    the draft out of draft. fleet-reviewer then reviews the ready change, and Fleet relays
-   its findings to the build Task. A new push makes fleet-reviewer amend its review.
+   its findings to the build Task. A new push makes fleet-reviewer amend its review. When
+   a review of the change's current head confirms a finding fixed, fleet-reviewer resolves
+   that finding's thread in the same pass. It resolves only the threads its own login
+   opened. A finding the current head's review does not confirm keeps its thread open and
+   goes back to the build Task. A reply or a push alone resolves nothing, and the build
+   Task never resolves a thread.
 7. **Merge.** No person takes part. fleet-reviewer approves the exact head it reviewed when
-   its confidence reaches the threshold. When the merge gate holds, the plugin asks the
+   its confidence reaches the threshold. Its approval of a head still counts after it
+   resolves its threads on that head. When the merge gate holds, the plugin asks the
    forge to auto-merge the change with a squash. The gate also needs the forge to count
    that approval: GitHub's review decision must be `approved`. Until it is, the ticket
    stays `InReview` with `MergeReady=False`, reason `ApprovalNotCounted`. The forge merges
@@ -204,7 +210,7 @@ its gate holds.
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
-| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head, and the forge counts that approval (review decision `approved`); no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
+| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head, and the forge counts that approval (review decision `approved`); no thread is unresolved: the reviewer resolves its own threads once fixed, and a thread a person or another bot opened waits for its author; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
 | Release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
 | Watch | A release contains the merge commit, and the watch window has passed. | GitHub Release, 24 hours. |
 | Follow-up | Findings exist and the parent has fewer than the cap of follow-ups. | Label `factory:proposed`, cap 3. |
