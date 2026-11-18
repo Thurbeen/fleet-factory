@@ -14,7 +14,8 @@ explains each stage and gate.
    as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
-   rules.
+   rules. Give the reviewer App Contents write on the repository, next to its Pull requests
+   access, so GitHub counts its approval. It needs nothing more.
 
 ## Run it
 

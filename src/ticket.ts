@@ -154,7 +154,11 @@ function dispatchPatch(task: J, free: boolean): J[] {
   ];
 }
 
-function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null {
+type MergeGate =
+  | { counted: true; head: string }
+  | { counted: false; head: string; approver: string; decision: string };
+
+function mergeGate(cr: J, spec: SourceSpec, ticket: TicketView): MergeGate | null {
   const s = cr?.status ?? {};
   const head = s.head?.id;
   if (!head || s.state?.value !== 'open' || !s.everReady) return null;
@@ -165,7 +169,10 @@ function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null 
     (r: J) =>
       sameLogin(String(r.author ?? ''), approver) && r.state === 'approved' && r.head === head,
   );
-  return approved ? head : null;
+  if (!approved) return null;
+  const decision = String(s.reviewDecision?.value ?? 'none');
+  if (decision === 'approved') return { counted: true, head };
+  return { counted: false, head, approver, decision };
 }
 
 export function reconcile(req: J): J {
@@ -348,9 +355,28 @@ function build(
   }
   if (state !== 'open') return plan;
   status.phase = 'InReview';
-  const ready = mergeReady(cr, spec, ticket);
-  if (!ready) return plan;
+  const gate = mergeGate(cr, spec, ticket);
+  if (!gate) return plan;
+  if (!gate.counted) {
+    status.conditions = [
+      ...status.conditions,
+      condition(
+        me.status?.conditions,
+        'MergeReady',
+        'False',
+        'ApprovalNotCounted',
+        `${gate.approver} approved ${gate.head} but GitHub reports review decision ${gate.decision}`,
+        now,
+      ),
+    ];
+    return plan;
+  }
+  const ready = gate.head;
   status.phase = 'Merging';
+  status.conditions = [
+    ...status.conditions,
+    condition(me.status?.conditions, 'MergeReady', 'True', 'Approved', '', now),
+  ];
   if (status.mergeRequested !== ready) {
     plan.effects = [
       ...(plan.effects ?? []),

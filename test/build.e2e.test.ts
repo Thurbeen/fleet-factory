@@ -57,7 +57,7 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(env.list('ticket')[0].status.change).toMatchObject({ url: CHANGE, head: HEAD });
   });
 
-  it('waits, and says why, while GitHub does not count the approver\'s approval', () => {
+  it("waits, and says why, while GitHub does not count the approver's approval", () => {
     const { env } = building();
     approve(env, { reviewDecision: 'none' });
     expect(env.merges()).toHaveLength(0);

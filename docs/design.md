@@ -86,8 +86,10 @@ flowchart TD
    its findings to the build Task. A new push makes fleet-reviewer amend its review.
 7. **Merge.** No person takes part. fleet-reviewer approves the exact head it reviewed when
    its confidence reaches the threshold. When the merge gate holds, the plugin asks the
-   forge to auto-merge the change with a squash. The forge merges only when its own rules
-   hold.
+   forge to auto-merge the change with a squash. The gate also needs the forge to count
+   that approval: GitHub's review decision must be `approved`. Until it is, the ticket
+   stays `InReview` with `MergeReady=False`, reason `ApprovalNotCounted`. The forge merges
+   only when its own rules hold.
 8. **Release, deploy.** The repository's own pipelines release and deploy, behind the
    forge's environment approval.
 9. **Post-release watch.** The plugin finds the first release that contains the merge
@@ -190,7 +192,7 @@ its gate holds.
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
-| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head; no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
+| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head, and the forge counts that approval (review decision `approved`); no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
 | Release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
 | Watch | A release contains the merge commit, and the watch window has passed. | GitHub Release, 24 hours. |
 | Follow-up | Findings exist and the parent has fewer than the cap of follow-ups. | Label `factory:proposed`, cap 3. |
@@ -338,6 +340,12 @@ of the TaskConfig's `env`. Without one, it goes before the `PATH` of the apply. 
 The TaskConfig also gets `GH_CONFIG_DIR`, an empty directory under `.fleet/`. A `gh` that
 does not go through the wrapper then has no login, and it fails. It does not post as the
 person whose `gh` login the host has.
+
+GitHub counts an approval toward a required review only from an account with write
+access. Give the App Contents write on the target repository, next to the Pull requests
+access it uses to review. It needs no admin, no entry on a bypass list and no other
+permission. Without Contents write its approval stays uncounted, and the ticket waits with
+reason `ApprovalNotCounted`.
 
 Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate compares
 logins without regard to case and to a final `[bot]`. GitHub's GraphQL API, which Fleet
