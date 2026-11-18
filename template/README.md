@@ -5,16 +5,62 @@ factory: the board it reads, the repositories it builds, the Fleet TaskConfigs e
 runs with, and the policy. [The design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md)
 explains each stage and gate.
 
+## Prerequisites
+
+- Node.js 22.18 or later. The plugin runs unbuilt from a checkout of fleet-factory, with no
+  `pnpm install`.
+- A `fleet` binary from [Thurbeen/thurbox](https://github.com/Thurbeen/thurbox/releases)
+  v3.1.0 or later.
+- A checkout of fleet-reviewer that knows `forge.login`.
+- `gh`, which the example `board-token` source runs.
+- A GitHub token or App that can write issues and pull requests on the target repository.
+
 ## Fill it
 
 1. Edit `factory.json`. Every secret is a reference, `{"secret": "NAME"}`, never a value.
+
 2. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
    differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
-   and the source of each secret, a file or a command with absolute paths. For a GitHub App
-   as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+   and the source of each secret, a file or a command with absolute paths.
+   Add `"as": "REVIEWER_TOKEN"` to `reviewer-token`; see [Secrets](#secrets). For a GitHub
+   App as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
    rules.
+
+4. Create the three labels a person sets:
+
+   ```sh
+   gh label create factory -R OWNER/app
+   gh label create factory:ready -R OWNER/app
+   gh label create factory:hold -R OWNER/app
+   ```
+
+### Secrets
+
+| Secret | Used by |
+| --- | --- |
+| `board-token` | The plugin, as its board and forge token |
+| `reviewer-token` | fleet-reviewer, from a `file` or a `githubApp` source |
+| `observability-token` | The watch TaskConfig, `factory-watch` |
+
+`as` names the environment variable a source sets. Every secret needs `as`, except a `file`
+source that only a TaskConfig reads.
+
+### Labels
+
+| Label | Set by | Effect |
+| --- | --- | --- |
+| `factory` | A person | Puts the ticket into the factory; `board.intakeLabel` |
+| `factory:ready` | A person | Starts the build when `policy.buildGate` is `label` |
+| `factory:hold` | A person | On the issue, stops the auto-merge request; `merge.holdLabel` |
+| `factory:needs-decision` | The plugin | A question on the ticket waits for a person |
+| `factory:refined` | The plugin | The decisions are on the ticket and no question is open |
+| `factory:proposed` | The plugin | A follow-up ticket from a watch finding; `policy.followUps.label` |
+| `factory:regression`, `factory:improvement` | The plugin | The kind of watch finding behind a follow-up ticket |
+
+GitHub creates a missing label when the plugin adds it, so only the first three need setting up.
 
 ## Run it
 
@@ -27,9 +73,21 @@ node FACTORY/bin/factory.ts up      # runs fleet up on that config, with telemet
 ```
 
 `apply` is idempotent: a second run prints `nothing to change`. The factory runs on its own
-Fleet config and data directory under `.fleet/`, so an existing Fleet config stays untouched.
+Fleet config, `.fleet/fleet.toml`, and data directory under `.fleet/`, so an existing Fleet
+config stays untouched.
 
 To run on an engine you already run, set `fleetConfig` in `factory.local.json` to its config
 file's absolute path. `plan` then prints the plugin entries that config needs. Add them
 yourself and restart that engine; `apply` refuses until they are there, and never writes
 that config. Run `up` only without `fleetConfig`.
+
+## Put a ticket through
+
+[The loop](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#the-loop)
+describes each stage. A person:
+
+1. Labels the issue `factory`.
+2. Answers each question the factory posts on it, in a comment.
+3. Sets `factory:ready` to start the build.
+4. Waits for the forge to merge the factory's change. To stop it, set `factory:hold` on the
+   issue before fleet-reviewer approves; after that, disable auto-merge on the pull request.

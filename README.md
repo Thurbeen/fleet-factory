@@ -4,3 +4,4 @@ Software factory on Fleet: ticket board to production and back, as infrastructur
 
 - [The design](docs/design.md)
 - [The template config](template/README.md): copy, fill, `plan`, `apply`, `up`.
+- [The prerequisites](template/README.md#prerequisites): Node.js, `fleet`, fleet-reviewer, `gh`.
