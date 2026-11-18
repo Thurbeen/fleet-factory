@@ -1,6 +1,6 @@
 # fleet-factory design
 
-Status: approved. The MVP is being built.
+Status: approved. MVP steps 1 to 5 are on main; step 6, the live loop on a sandbox repository, remains.
 
 fleet-factory is a software factory on [Fleet](https://github.com/Thurbeen/thurbox/tree/main/docs/fleet).
 It takes a ticket from a board, refines it into recorded functional decisions, builds it
@@ -364,10 +364,12 @@ The apply is idempotent. A second run with the same input writes nothing.
    labels its change `factory`. `stages.review.filters` adds to or replaces the
    `ReviewSource` filters.
 4. Read each resource with `fleet get`, and compare it with the rendered one.
-5. Print the plan: created, changed, unchanged, and managed objects no longer in the
-   config.
+5. Print the plan: one `create` or `update` line for the config file and for each resource
+   that differs, or `nothing to change`.
 6. With `apply`, write the config file atomically, and `fleet apply` only what differs.
-   A managed object that left the config is deleted only with `--prune`.
+
+The plan does not list a managed object that left the config, and the apply does not delete
+it. The operator deletes it with `fleet delete`.
 
 The apply manages the objects it labels `fleet-factory/managed: <name>`. It never writes a
 Task: Tasks belong to the plugin. It never writes a forge or board setting.
@@ -427,9 +429,9 @@ the factory, and a proposal for thurbox.
 | 2 | `fleet apply` has no dry run, diff or prune. | `factory plan` diffs client side with `fleet get`, and validates plugin specs with the plugin's own schema. | `fleet apply --dry-run`, with the store's validation and a per-object verdict. |
 | 3 | Fleet's spans carry a Task's identity, not its labels. | Stage Task names carry the ticket key; a search by Task name finds one stage. | Export an allow-listed set of label keys as span attributes. |
 | 4 | The event board has no plugin path: a probe cannot read a `Board`, and a plan cannot publish to one. A Task cannot publish yet; thurbox#1729 adds that. | The plugin reads Task results and polls the forge. [Events on the Fleet board](#events-on-the-fleet-board) lists what changes as each slice ships. | A `board` probe type with a cursor, and a plan `publishes[]` verb whose source is `plugin/<name>`. |
-| 7 | A release pipeline runs off the manager, so it cannot publish a deploy event to a board. | The plugin polls the forge for releases. | Remote publishing, the last slice of thurbox#1729, or a forge-to-board bridge. |
 | 5 | Plugin probes share no per-host budget with Fleet's forge polls. | The plugin meters its own GitHub calls in its source's status. | fleet-reviewer's proposal 1, which covers both plugins. |
 | 6 | An amendment from a plugin reaches the worker as a peer's message. | The refine brief says, in advance, that answers relayed from the ticket are decisions to apply. | None needed for the factory. |
+| 7 | A release pipeline runs off the manager, so it cannot publish a deploy event to a board. | The plugin polls the forge for releases. | Remote publishing, the last slice of thurbox#1729, or a forge-to-board bridge. |
 
 ## Testing strategy
 
@@ -439,7 +441,7 @@ Every change starts with a failing end-to-end test.
 | --- | --- | --- |
 | Controller | `probes` and `reconcile` as pure functions, table tests | Every stage transition, gate and Unknown rule |
 | Adapter | The GitHub Issues adapter against recorded responses; the fake adapter against the same contract tests | Each board operation, markers, permissions, rate-limit answers |
-| Apply | `factory plan` and `apply` against a real `fleet` binary on a temporary config | Rendering, the diff, idempotency, refusal of literal secrets, prune |
+| Apply | `factory plan` and `apply` against a real `fleet` binary on a temporary config | Rendering, the diff, idempotency, refusal of literal secrets |
 | End to end | The pinned `fleet` release, its fake runtime and fake forge, the fake board and a fake backend; the test records each worker's result | The whole loop, from a labelled ticket to a follow-up ticket filed from a watch finding |
 | Live sandbox | A sandbox repository on GitHub, real agents, a local Grafana LGTM stack, run by an operator | The same loop against real services, with the evidence recorded in the change |
 
