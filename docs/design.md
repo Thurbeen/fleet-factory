@@ -366,10 +366,12 @@ The apply renders this source in four ways:
   with a fresh token. It gets `GH_CONFIG_DIR`, an empty directory under `.fleet/`, so a `gh`
   that does not go through the wrapper has no login and fails.
 - The same TaskConfig gets git config through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n` and
-  `GIT_CONFIG_VALUE_n`: an empty `credential.helper` that clears the host's helpers, then
+  `GIT_CONFIG_VALUE_n`: an empty `credential.helper` that clears the host's helpers, then,
+  for each repository origin only, `credential.<origin>.helper` set to
   `bin/git-credential-github-app`, which mints a token for each request and answers the
-  user `x-access-token`. `url.<origin>/.insteadOf` rewrites `git@HOST:` and
-  `ssh://git@HOST/` for each repository, so a push never uses the host's SSH key.
+  user `x-access-token`. Another host gets no credential. `url.<origin>/.insteadOf`
+  rewrites `git@HOST:` and `ssh://git@HOST/` for each repository, so a push never uses the
+  host's SSH key.
   `GIT_TERMINAL_PROMPT=0`. When the mint fails, the helper tells git to quit, and the push
   fails with the mint's error.
 - With a `githubApp` secret on the build TaskConfig, `[forge.hosts]` `cli` is

@@ -165,6 +165,15 @@ describe.skipIf(!FLEET)('every factory GitHub action runs as the author App', ()
     }
     expect(existsSync(called)).toBe(false);
 
+    await state(api, { requests: [] });
+    const minted = (await state(api)).minted;
+    const elsewhere = api.replace('127.0.0.1', 'localhost');
+    const leaked = git(repos.work, env, 'ls-remote', `${elsewhere}/OWNER/app.git`);
+    expect(leaked.status).not.toBe(0);
+    expect(credentials((await state(api)).requests)).toEqual(['']);
+    expect((await state(api)).minted).toBe(minted);
+    expect(existsSync(called)).toBe(false);
+
     await state(api, { app: null, requests: [] });
     const failed = git(repos.work, env, 'push', 'ssh://git@127.0.0.1/OWNER/app.git', 'main:x');
     expect(failed.status).not.toBe(0);

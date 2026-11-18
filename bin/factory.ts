@@ -152,14 +152,15 @@ function appTokenArgs(app: GitHubApp): string[] {
 }
 
 function appGitConfig(repositories: URL[]): [string, string][] {
-  const httpsOnly = repositories.flatMap((repo): [string, string][] => {
+  const perOrigin = repositories.flatMap((repo): [string, string][] => {
     const rewrite = `url.${repo.origin}/.insteadOf`;
     return [
+      [`credential.${repo.origin}.helper`, APP_GIT_CREDENTIAL],
       [rewrite, `git@${repo.hostname}:`],
       [rewrite, `ssh://git@${repo.hostname}/`],
     ];
   });
-  return [['credential.helper', ''], ['credential.helper', APP_GIT_CREDENTIAL], ...httpsOnly];
+  return [['credential.helper', ''], ...perOrigin];
 }
 
 function appSessionEnv(
