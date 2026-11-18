@@ -1,7 +1,9 @@
+import { spawn } from 'node:child_process';
 import { createVerify } from 'node:crypto';
 import { createServer } from 'node:http';
 
-type Comment = { id: number; user: { login: string }; body: string };
+type Account = { login: string; type?: string };
+type Comment = { id: number; user: Account; body: string };
 type Issue = {
   number: number;
   title: string;
@@ -9,8 +11,10 @@ type Issue = {
   state: string;
   labels: string[];
   comments: Comment[];
+  user?: Account;
   pull_request?: object;
 };
+type Request = { method: string; path: string; credential: string };
 type State = {
   issues: Record<string, Issue>;
   permissions: Record<string, string>;
@@ -20,6 +24,8 @@ type State = {
   throttle: boolean;
   app: { id: string; installationId: string; publicKey: string } | null;
   minted: number;
+  gitRoot: string | null;
+  requests: Request[];
 };
 
 const state: State = {
@@ -31,6 +37,8 @@ const state: State = {
   throttle: false,
   app: null,
   minted: 0,
+  gitRoot: null,
+  requests: [],
 };
 
 function appJwtValid(authorization: string | undefined): boolean {
@@ -45,10 +53,26 @@ function appJwtValid(authorization: string | undefined): boolean {
   return String(claims.iss) === app.id && claims.iat <= now && claims.exp > now;
 }
 
-function send(res: any, code: number, body: unknown) {
-  res.writeHead(code, { 'content-type': 'application/json', connection: 'close' });
+function credential(authorization: string | undefined): string {
+  const bearer = /^Bearer (.+)$/.exec(authorization ?? '');
+  if (bearer) return bearer[1];
+  const basic = /^Basic (.+)$/.exec(authorization ?? '');
+  if (!basic) return '';
+  const [, password = ''] = /^[^:]*:(.*)$/.exec(Buffer.from(basic[1], 'base64').toString()) ?? [];
+  return password;
+}
+
+function accepted(token: string): boolean {
+  const minted = /^ghs_minted_(\d+)$/.exec(token);
+  return token === state.token || (!!minted && Number(minted[1]) <= state.minted);
+}
+
+function send(res: any, code: number, body: unknown, headers: object = {}) {
+  res.writeHead(code, { 'content-type': 'application/json', connection: 'close', ...headers });
   res.end(JSON.stringify(body));
 }
+
+const account = (a: Account | undefined) => ({ type: 'User', ...(a ?? { login: 'someone' }) });
 
 function issueJson(project: string, i: Issue) {
   return {
@@ -57,19 +81,55 @@ function issueJson(project: string, i: Issue) {
     title: i.title,
     body: i.body,
     state: i.state,
+    user: account(i.user),
     labels: i.labels.map((name) => ({ name })),
     ...(i.pull_request ? { pull_request: i.pull_request } : {}),
   };
 }
 
+function gitBackend(req: any, res: any, path: string, query: string, body: Buffer) {
+  const cgi = spawn('git', ['http-backend'], {
+    env: {
+      PATH: process.env.PATH ?? '',
+      GIT_PROJECT_ROOT: state.gitRoot!,
+      GIT_HTTP_EXPORT_ALL: '1',
+      PATH_INFO: path,
+      QUERY_STRING: query,
+      REQUEST_METHOD: req.method,
+      CONTENT_TYPE: req.headers['content-type'] ?? '',
+      CONTENT_LENGTH: String(body.length),
+      HTTP_CONTENT_ENCODING: req.headers['content-encoding'] ?? '',
+      REMOTE_USER: 'x-access-token',
+      REMOTE_ADDR: '127.0.0.1',
+    },
+  });
+  const out: Buffer[] = [];
+  cgi.stdout.on('data', (d) => out.push(d));
+  cgi.stdin.end(body);
+  cgi.on('close', () => {
+    const all = Buffer.concat(out);
+    const split = all.indexOf('\r\n\r\n');
+    const head = all.subarray(0, split).toString();
+    const headers: Record<string, string> = { connection: 'close' };
+    let code = 200;
+    for (const line of head.split('\r\n')) {
+      const [k, ...v] = line.split(':');
+      if (k.toLowerCase() === 'status') code = Number(v.join(':').trim().split(' ')[0]);
+      else headers[k] = v.join(':').trim();
+    }
+    res.writeHead(code, headers);
+    res.end(all.subarray(split + 4));
+  });
+}
+
 const server = createServer(async (req, res) => {
-  let raw = '';
-  for await (const c of req) raw += c;
-  const body = raw ? JSON.parse(raw) : null;
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c);
+  const raw = Buffer.concat(chunks);
   const url = new URL(req.url ?? '/', 'http://x');
   const path = url.pathname;
   if (path === '/__state') {
-    if (req.method === 'PUT') Object.assign(state, body);
+    if (req.method === 'PUT') Object.assign(state, JSON.parse(raw.toString()));
     return send(res, 200, state);
   }
   const mint = /^\/app\/installations\/([^/]+)\/access_tokens$/.exec(path);
@@ -82,8 +142,16 @@ const server = createServer(async (req, res) => {
       expires_at: '2099-01-01T00:00:00Z',
     });
   }
-  if (req.headers.authorization !== `Bearer ${state.token}`) return send(res, 401, {});
+  const token = credential(req.headers.authorization);
+  state.requests.push({ method: req.method ?? '', path, credential: token });
+  if (/^\/[^/]+\/[^/]+\.git\//.test(path) && state.gitRoot) {
+    if (!accepted(token))
+      return send(res, 401, {}, { 'www-authenticate': 'Basic realm="github.test"' });
+    return gitBackend(req, res, path, url.search.slice(1), raw);
+  }
+  if (!accepted(token)) return send(res, 401, {});
   if (state.throttle) return send(res, 403, { message: 'API rate limit exceeded' });
+  const body = raw.length ? JSON.parse(raw.toString()) : null;
   let m = /^\/repos\/([^/]+\/[^/]+)\/(.*)$/.exec(path);
   if (!m) return send(res, 404, {});
   const [, project, rest] = m;
@@ -115,7 +183,11 @@ const server = createServer(async (req, res) => {
       i.comments.push(c);
       return send(res, 201, c);
     }
-    return send(res, 200, i.comments);
+    return send(
+      res,
+      200,
+      i.comments.map((c) => ({ ...c, user: account(c.user) })),
+    );
   }
   if ((m = /^issues\/(\d+)\/labels$/.exec(rest)) && req.method === 'POST') {
     const i = issue(m[1]);

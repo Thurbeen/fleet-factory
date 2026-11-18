@@ -1,0 +1,39 @@
+version = 1
+
+[data]
+dir = "data"
+
+[runtime]
+kind = "fake"
+dir = "fake"
+
+[forge]
+
+[forge.hosts]
+"github.com" = { kind = "github", cli = "gh" }
+
+[forge.readyPolicies.checks]
+checksPassed = true
+
+[forge.readyPolicies.checks-and-bots]
+botReviewsAddressed = true
+checksPassed = true
+
+[forge.readyPolicies.strict]
+botReviewsAddressed = true
+checksPassed = true
+noUnresolvedThreads = true
+
+[plugins.fleet-factory]
+program = "<NODE>"
+args = ["<ROOT>/src/plugin.ts"]
+cwd = "<DIR>/.fleet"
+tasks = "own"
+envFrom = [{ name = "acme-secret-board-token" }]
+
+[plugins.fleet-reviewer]
+program = "<NODE>"
+args = ["<ROOT>/test/stub-fleet-reviewer/src/plugin.ts"]
+cwd = "<ROOT>/test/stub-fleet-reviewer"
+tasks = "own"
+envFrom = [{ name = "acme-secret-reviewer-token" }]

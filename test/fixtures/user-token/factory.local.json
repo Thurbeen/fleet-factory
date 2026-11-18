@@ -1,0 +1,10 @@
+{
+  "fleetBin": "<FLEET>",
+  "fleetReviewer": "<ROOT>/test/stub-fleet-reviewer",
+  "runtime": { "kind": "fake", "dir": "fake" },
+  "secrets": {
+    "board-token": { "command": ["<DIR>/print-secret.sh"], "as": "GITHUB_TOKEN" },
+    "reviewer-token": { "command": ["/bin/echo", "reviewer-secret"], "as": "REVIEWER_TOKEN" },
+    "observability-token": { "file": "<DIR>/obs.json" }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Thurbeen/fleet-factory/main/schema/factory.schema.json",
+  "name": "acme",
+  "board": {
+    "kind": "github-issues",
+    "project": "OWNER/app",
+    "intakeLabel": "factory",
+    "token": { "secret": "board-token" }
+  },
+  "forge": { "kind": "github", "token": { "secret": "board-token" } },
+  "repositories": [{ "name": "app", "url": "https://github.com/OWNER/app", "branch": "main" }],
+  "taskConfigs": {
+    "factory-refine": { "harness": "claude", "host": "local" },
+    "factory-build": { "harness": "claude", "host": "local" },
+    "factory-review": { "harness": "claude", "host": "local" },
+    "factory-watch": {
+      "harness": "claude",
+      "host": "local",
+      "env": { "OBS_KIND": "grafana", "OBS_URL": "https://grafana.example.com" },
+      "secrets": ["observability-token"]
+    }
+  },
+  "stages": {
+    "refine": { "taskConfig": "factory-refine" },
+    "build": { "taskConfig": "factory-build", "readyPolicy": "checks-and-bots" },
+    "review": {
+      "taskConfig": "factory-review",
+      "login": "REVIEWER_LOGIN",
+      "token": { "secret": "reviewer-token" },
+      "approveAt": 4
+    },
+    "watch": { "taskConfig": "factory-watch", "afterMs": 86400000 }
+  },
+  "policy": {
+    "buildGate": "label",
+    "maxActive": { "refine": 3, "build": 2 },
+    "humanDecisions": ["scope", "pricing", "data-retention", "security", "user-facing-copy"],
+    "followUps": { "label": "factory:proposed", "max": 3 }
+  },
+  "merge": { "method": "squash", "holdLabel": "factory:hold" },
+  "observability": { "fleetExport": { "endpoint": "http://localhost:4318" } }
+}

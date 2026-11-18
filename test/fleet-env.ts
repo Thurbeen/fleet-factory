@@ -11,15 +11,41 @@ if (!FLEET && process.env.FLEET_E2E_REQUIRED) {
   throw new Error('FLEET_E2E_REQUIRED is set but FLEET_BIN is not');
 }
 
-export type Comment = { id: number; author: string; permission: string; body: string };
+export type Comment = {
+  id: number;
+  author: string;
+  permission: string;
+  body: string;
+  type?: string;
+};
+export type Author = { login: string; type: string; permission: string };
 export type Ticket = {
   number: number;
+  author?: Author;
   title: string;
   body: string;
   state: string;
   labels: string[];
   comments: Comment[];
 };
+
+export function makeDue(dataDir: string) {
+  for (const kind of ['TicketSource', 'Ticket', 'ChangeRequest']) {
+    const dir = join(dataDir, 'objects', kind);
+    let files: string[] = [];
+    try {
+      files = readdirSync(dir);
+    } catch {
+      continue;
+    }
+    for (const f of files) {
+      const path = join(dir, f);
+      const obj = JSON.parse(readFileSync(path, 'utf8'));
+      if (obj.status) obj.status.notBefore = 0;
+      writeFileSync(path, JSON.stringify(obj));
+    }
+  }
+}
 
 export class Env {
   extraEnv: Record<string, string>;
@@ -98,21 +124,7 @@ export class Env {
 
   sweep(times = 1) {
     for (let i = 0; i < times; i++) {
-      for (const kind of ['TicketSource', 'Ticket', 'ChangeRequest']) {
-        const dir = join(this.root, 'data/objects', kind);
-        let files: string[] = [];
-        try {
-          files = readdirSync(dir);
-        } catch {
-          continue;
-        }
-        for (const f of files) {
-          const path = join(dir, f);
-          const obj = JSON.parse(readFileSync(path, 'utf8'));
-          if (obj.status) obj.status.notBefore = 0;
-          writeFileSync(path, JSON.stringify(obj));
-        }
-      }
+      makeDue(join(this.root, 'data'));
       this.ok('reconcile');
     }
   }
@@ -154,13 +166,14 @@ export class Env {
     this.writeBoard(b);
   }
 
-  comment(number: number, author: string, permission: string, body: string) {
+  comment(number: number, author: string, permission: string, body: string, type = 'User') {
     const b = this.readBoard();
     b.tickets[`${PROJECT}#${number}`].comments.push({
       id: b.nextComment++,
       author,
       permission,
       body,
+      type,
     });
     this.writeBoard(b);
   }

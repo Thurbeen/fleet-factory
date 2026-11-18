@@ -1,62 +1,21 @@
 import { spawnSync } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { startGitHub, state } from './fake-github.ts';
+import {
+  ROOT,
+  STUB_REVIEWER,
+  appKeys,
+  edit,
+  factory,
+  fleet,
+  workspace,
+} from './factory-workspace.ts';
 import { FLEET } from './fleet-env.ts';
 
-const FACTORY = resolve(import.meta.dirname, '../bin/factory.ts');
-const TEMPLATE = resolve(import.meta.dirname, '../template/factory.json');
-const STUB_REVIEWER = resolve(import.meta.dirname, 'stub-fleet-reviewer');
-
-function edit(path: string, change: (v: any) => void) {
-  const v = JSON.parse(readFileSync(path, 'utf8'));
-  change(v);
-  writeFileSync(path, JSON.stringify(v, null, 2));
-}
-
-function workspace() {
-  const dir = mkdtempSync(join(tmpdir(), 'fleet-factory-apply-'));
-  const config = JSON.parse(readFileSync(TEMPLATE, 'utf8'));
-  writeFileSync(join(dir, 'factory.json'), JSON.stringify(config, null, 2));
-  const helper = join(dir, 'print-secret.sh');
-  writeFileSync(helper, '#!/bin/sh\necho board-secret\n', { mode: 0o755 });
-  writeFileSync(
-    join(dir, 'factory.local.json'),
-    JSON.stringify({
-      fleetBin: FLEET,
-      runtime: { kind: 'fake', dir: 'fake' },
-      secrets: {
-        'board-token': { command: [helper], as: 'GITHUB_TOKEN' },
-        'reviewer-token': { command: ['/bin/echo', 'reviewer-secret'], as: 'REVIEWER_TOKEN' },
-        'observability-token': { file: join(dir, 'obs.json') },
-      },
-    }),
-  );
-  return dir;
-}
-
-function factory(dir: string, ...args: string[]) {
-  const r = spawnSync(process.execPath, [FACTORY, ...args], {
-    cwd: dir,
-    env: { PATH: process.env.PATH ?? '', HOME: dir },
-    encoding: 'utf8',
-    timeout: 120_000,
-  });
-  return { code: r.status ?? -1, out: r.stdout, err: r.stderr };
-}
-
-function fleet(dir: string, ...args: string[]) {
-  return spawnSync(FLEET!, ['--config', join(dir, '.fleet/fleet.toml'), ...args], {
-    cwd: dir,
-    env: { PATH: process.env.PATH ?? '', HOME: dir },
-    encoding: 'utf8',
-  });
-}
-
-const PLUGIN = resolve(import.meta.dirname, '../src/plugin.ts');
+const PLUGIN = join(ROOT, 'src/plugin.ts');
 
 function operatorFleet(root: string) {
   const config = join(root, 'fleet.toml');
@@ -221,11 +180,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
 
   it('gives the reviewer plugin and the review session a fresh App token at each use', async () => {
     const api = await startGitHub();
-    const keys = generateKeyPairSync('rsa', {
-      modulusLength: 2048,
-      publicKeyEncoding: { type: 'spki', format: 'pem' },
-      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-    });
+    const keys = appKeys();
     await state(api, { app: { id: '123', installationId: '456', publicKey: keys.publicKey } });
     const dir = workspace();
     const keyFile = join(dir, 'app.pem');

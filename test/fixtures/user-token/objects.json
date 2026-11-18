@@ -1,0 +1,216 @@
+{
+  "items": [
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "TaskConfig",
+      "metadata": {
+        "name": "acme-factory-refine",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "harness": "claude",
+        "host": "local"
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "TaskConfig",
+      "metadata": {
+        "name": "acme-factory-build",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "harness": "claude",
+        "host": "local"
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "TaskConfig",
+      "metadata": {
+        "name": "acme-factory-review",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "harness": "claude",
+        "host": "local"
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "TaskConfig",
+      "metadata": {
+        "name": "acme-factory-watch",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "harness": "claude",
+        "host": "local",
+        "env": {
+          "OBS_KIND": "grafana",
+          "OBS_URL": "https://grafana.example.com"
+        },
+        "envFrom": [
+          {
+            "name": "acme-secret-observability-token"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "EnvProvider",
+      "metadata": {
+        "name": "acme-secret-board-token",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "sources": [
+          {
+            "type": "command",
+            "program": "<NODE>",
+            "args": ["<ROOT>/bin/secret-env.ts", "GITHUB_TOKEN", "<DIR>/print-secret.sh"],
+            "cwd": "<DIR>/.fleet",
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "EnvProvider",
+      "metadata": {
+        "name": "acme-secret-observability-token",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "sources": [
+          {
+            "type": "file",
+            "path": "<DIR>/obs.json"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "EnvProvider",
+      "metadata": {
+        "name": "acme-secret-reviewer-token",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "sources": [
+          {
+            "type": "command",
+            "program": "<NODE>",
+            "args": ["<ROOT>/bin/secret-env.ts", "REVIEWER_TOKEN", "/bin/echo", "reviewer-secret"],
+            "cwd": "<DIR>/.fleet",
+            "timeoutMs": 10000
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "TicketSource",
+      "metadata": {
+        "name": "app",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "board": {
+          "kind": "github-issues",
+          "project": "OWNER/app",
+          "intakeLabel": "factory",
+          "tokenEnv": "GITHUB_TOKEN"
+        },
+        "repository": {
+          "url": "https://github.com/OWNER/app",
+          "branch": "main"
+        },
+        "forge": {
+          "kind": "github",
+          "tokenEnv": "GITHUB_TOKEN"
+        },
+        "stages": {
+          "refine": {
+            "taskConfig": "acme-factory-refine"
+          },
+          "build": {
+            "taskConfig": "acme-factory-build",
+            "readyPolicy": "checks-and-bots"
+          },
+          "review": {
+            "approver": "REVIEWER_LOGIN"
+          },
+          "watch": {
+            "taskConfig": "acme-factory-watch",
+            "afterMs": 86400000
+          }
+        },
+        "policy": {
+          "buildGate": "label",
+          "maxActive": {
+            "refine": 3,
+            "build": 2
+          },
+          "humanDecisions": ["scope", "pricing", "data-retention", "security", "user-facing-copy"],
+          "followUps": {
+            "label": "factory:proposed",
+            "max": 3
+          }
+        },
+        "merge": {
+          "method": "squash",
+          "holdLabel": "factory:hold"
+        }
+      }
+    },
+    {
+      "apiVersion": "fleet/v1alpha1",
+      "kind": "ReviewSource",
+      "metadata": {
+        "name": "app",
+        "labels": {
+          "fleet-factory/managed": "acme"
+        }
+      },
+      "spec": {
+        "forge": {
+          "kind": "github",
+          "host": "github.com",
+          "tokenEnv": "REVIEWER_TOKEN"
+        },
+        "repositories": [
+          {
+            "project": "OWNER/app"
+          }
+        ],
+        "filters": {
+          "requireLabels": ["factory"]
+        },
+        "review": {
+          "taskConfig": "acme-factory-review",
+          "approveAt": 4
+        }
+      }
+    }
+  ]
+}
