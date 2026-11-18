@@ -123,8 +123,10 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `4. Emit each criterion's signal, tagged with the attribute feature.ticket="${t.key}".`,
     `5. End every post on the forge with your worker mark. Never mark the change ready and never`,
     `   merge it: Fleet and the factory do that once the checks and the review pass.`,
-    `6. Answer review feedback that reaches you with new pushes.`,
-    `7. Record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
+    `6. Stay on the change until Fleet marks the change ready, or until it is merged or closed.`,
+    `   Answer each check failure, review note and amendment that reaches you with new pushes.`,
+    `   Never record a result while the change is a draft.`,
+    `7. Then record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
   ].join('\n');
 }
 
@@ -186,4 +188,28 @@ export function followUpBody(
     ``,
     `A collaborator promotes it into the factory with the intake label.`,
   ].join('\n');
+}
+
+const FAILED_HEAD = /^The checks failed on head ([0-9a-f]+)\./gm;
+
+export function failedChecksAmendment(
+  url: string,
+  head: string,
+  failing: { name?: string; url?: string }[],
+): string {
+  return [
+    `The checks failed on head ${head}.`,
+    `Your change ${url} is still a draft. Fix the failing checks with new pushes, and record a`,
+    `result only once Fleet marks the change ready, or it is merged or closed.`,
+    ``,
+    ...(failing.length
+      ? failing.map((c) => `- ${c.name ?? 'check'}${c.url ? `: ${c.url}` : ''}`)
+      : ['- (the forge named no failing check)']),
+  ].join('\n');
+}
+
+export function amendedHeads(task: { spec?: { amendments?: { from?: string; text?: string }[] } }) {
+  return (task.spec?.amendments ?? [])
+    .filter((a) => a.from === 'plugin/fleet-factory')
+    .flatMap((a) => [...String(a.text ?? '').matchAll(FAILED_HEAD)].map((m) => m[1]));
 }

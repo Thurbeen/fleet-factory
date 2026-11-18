@@ -1,6 +1,8 @@
 import {
+  amendedHeads,
   answersAmendment,
   buildBrief,
+  failedChecksAmendment,
   followUpBody,
   watchBrief,
   watchComment,
@@ -332,11 +334,18 @@ function build(
     ),
   ];
   status.phase = 'Building';
+  const declared = (buildTask.status?.declared ?? []).find((d: J) => d?.kind === 'ChangeRequest');
+  if (!declared) {
+    if (buildTask.status?.phase === 'Concluded')
+      stuck(me, status, 'NoChange', `${buildTask.metadata.name} concluded without a change`, now);
+    return plan;
+  }
   const cr = live(obs.change);
   const state = cr?.status?.state?.value;
-  const url = (buildTask.status?.declared ?? []).find((d: J) => d?.kind === 'ChangeRequest')?.url;
+  const url = declared.url;
   if (!cr || !state) return plan;
   const head = cr.status?.head?.id ?? null;
+  if (state === 'draft') return draft(me, spec, buildTask, cr, url, status, plan, now);
   if (state === 'merged') {
     status.phase = 'Merged';
     status.change = { url, head, merged: true, mergedAt: now };
@@ -347,6 +356,8 @@ function build(
     return plan;
   }
   if (state !== 'open') return plan;
+  status.change = { url, head, merged: false };
+  progressing(me, status, 'True', 'Ready', `${url} at ${head}`, now);
   status.phase = 'InReview';
   const ready = mergeReady(cr, spec, ticket);
   if (!ready) return plan;
@@ -367,6 +378,59 @@ function build(
     ];
     status.mergeRequested = ready;
   }
+  return plan;
+}
+
+function progressing(
+  me: J,
+  status: J,
+  value: 'True' | 'False',
+  reason: string,
+  message: string,
+  now: number,
+) {
+  status.conditions = [
+    ...status.conditions.filter((c: J) => c?.type !== 'Progressing'),
+    condition(me.status?.conditions, 'Progressing', value, reason, message, now),
+  ];
+}
+
+function stuck(me: J, status: J, reason: string, message: string, now: number) {
+  status.phase = 'Stuck';
+  progressing(me, status, 'False', reason, message, now);
+}
+
+function draft(
+  me: J,
+  spec: SourceSpec,
+  buildTask: J,
+  cr: J,
+  url: string,
+  status: J,
+  plan: J,
+  now: number,
+): J {
+  const head = cr.status?.head ?? {};
+  status.change = { url, head: head.id ?? null, merged: false };
+  const stuckAt = Number(head.firstSeenAt ?? now) + spec.build.stuckAfterMs;
+  if (now >= stuckAt) {
+    stuck(me, status, 'ChangeStuck', `${url} has stayed a draft at head ${head.id}`, now);
+    return plan;
+  }
+  progressing(me, status, 'True', 'Following', `${url} at head ${head.id}`, now);
+  plan.notBefore = Math.min(plan.notBefore, stuckAt);
+  const concluded = buildTask.status?.phase === 'Concluded';
+  if (!concluded || head.checks !== 'failed' || amendedHeads(buildTask).includes(head.id))
+    return plan;
+  plan.amends = [
+    {
+      task: buildTask.metadata.name,
+      uid: buildTask.metadata.uid,
+      text: failedChecksAmendment(url, head.id, Array.isArray(head.failing) ? head.failing : []),
+      reason: `checks failed on draft head ${head.id}; feature.ticket="${me.spec.key}"`,
+      ifGeneration: Number(buildTask.metadata.generation),
+    },
+  ];
   return plan;
 }
 

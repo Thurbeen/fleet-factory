@@ -150,6 +150,10 @@
             "readyPolicy": {
               "type": "string",
               "minLength": 1
+            },
+            "stuckAfterMs": {
+              "type": "integer",
+              "minimum": 1
             }
           }
         },
