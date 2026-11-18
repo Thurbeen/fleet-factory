@@ -66,6 +66,7 @@ describe('the supersede step', () => {
       WORKFLOW: '${{ github.workflow }}',
       HEAD_REF: '${{ github.head_ref }}',
       HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+      RUN_ID: '${{ github.run_id }}',
     });
   });
 
@@ -96,6 +97,7 @@ describe('the supersede step', () => {
         WORKFLOW: 'CI',
         HEAD_REF: 'feature',
         HEAD_SHA: CURRENT_HEAD,
+        RUN_ID: '10',
       },
     });
     const calls = readFileSync(log, 'utf8').trim().split('\n');
@@ -119,6 +121,15 @@ describe('the supersede step', () => {
     for (const id of [1, 2, 3, 4]) {
       expect(result.stdout).toContain(`cancelled run ${id} of head ${OLDER_HEAD}`);
     }
+  });
+
+  it('leaves the runs of a newer head alone when it starts late', () => {
+    const { result, cancelled } = supersede([
+      { databaseId: 11, headSha: OLDER_HEAD, status: 'in_progress' },
+      { databaseId: 12, headSha: OLDER_HEAD, status: 'queued' },
+    ]);
+    expect(result.status).toBe(0);
+    expect(cancelled).toEqual([]);
   });
 
   it('never fails the checks of the current head when a cancel fails', () => {

@@ -6,8 +6,9 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -16,6 +17,36 @@ env:
   FLEET_VERSION: 3.1.0
 
 jobs:
+  supersede:
+    name: Supersede older heads
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel this workflow's active runs of an older head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$HEAD_REF" \
+            --event pull_request --limit 100 --json databaseId,headSha,status \
+            | jq -r --arg head "$HEAD_SHA" --argjson run "$RUN_ID" '.[]
+                | select(.headSha != $head and .databaseId < $run)
+                | select(.status | IN("queued", "pending", "waiting", "requested", "in_progress"))
+                | "\(.databaseId) \(.headSha)"' \
+            | while read -r id sha; do
+                if gh run cancel "$id" --repo "$REPO"; then
+                  echo "cancelled run $id of head $sha"
+                else
+                  echo "could not cancel run $id of head $sha"
+                fi
+              done
+
   plugin:
     name: Plugin (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
