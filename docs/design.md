@@ -372,9 +372,30 @@ The apply is idempotent. A second run with the same input writes nothing.
 The apply manages the objects it labels `fleet-factory/managed: <name>`. It never writes a
 Task: Tasks belong to the plugin. It never writes a forge or board setting.
 
-The factory runs on its own Fleet config and data directory, made with
-`fleet init --config`. An operator's existing Fleet config stays untouched, because Fleet
-registers plugins only in its native config and has no include.
+Store names carry the factory's `name`: TaskConfig `<name>-<taskConfig>` and EnvProvider
+`<name>-secret-<secret>`. `factory.json` names a TaskConfig without the prefix. Two
+factories can then share one store. A `TicketSource` and a `ReviewSource` keep the
+repository's name, so one repository belongs to one factory.
+
+By default the factory runs on its own Fleet config and data directory under `.fleet/`, and
+`factory up` runs it.
+
+`factory.local.json` can name an existing Fleet config instead, with `fleetConfig`, an
+absolute path. The factory then runs on that config's engine and store:
+
+- The plan reads and the apply writes the resources in that config's store.
+- Neither writes that config. Fleet registers plugins only in its native config, with no
+  include, and the config belongs to its operator.
+- The plan checks `[plugins.fleet-factory]` and, with a reviewer, `[plugins.fleet-reviewer]`
+  in that config. An entry is `present` when its `program` and `args` match and its
+  `envFrom` holds every provider the factory needs. Otherwise the plan prints `missing` or
+  `differs` and the entry it needs.
+- The apply refuses while an entry is not `present`. The operator adds the entries, and
+  restarts the engine, because Fleet reads its config at start.
+- `factory up` refuses: the operator runs that engine.
+
+One plugin entry serves every factory on the engine, so its `envFrom` lists each factory's
+providers. The entry's `cwd` is the fleet-factory checkout.
 
 ## Human authorization boundaries
 
@@ -402,7 +423,7 @@ the factory, and a proposal for thurbox.
 
 | # | Gap | Without the change | Proposal |
 | --- | --- | --- | --- |
-| 1 | Plugins are registered only in the native `fleet.toml`, which has no include. | The factory renders and owns a whole Fleet config, run as a separate manager. | A drop-in directory for `[plugins]` and `[forge]` fragments, or an include list. |
+| 1 | Plugins are registered only in the native `fleet.toml`, which has no include. | The factory renders and owns a whole Fleet config, run as a separate manager; or, with `fleetConfig`, prints the plugin entries for the operator to add to their config. | A drop-in directory for `[plugins]` and `[forge]` fragments, or an include list. |
 | 2 | `fleet apply` has no dry run, diff or prune. | `factory plan` diffs client side with `fleet get`, and validates plugin specs with the plugin's own schema. | `fleet apply --dry-run`, with the store's validation and a per-object verdict. |
 | 3 | Fleet's spans carry a Task's identity, not its labels. | Stage Task names carry the ticket key; a search by Task name finds one stage. | Export an allow-listed set of label keys as span attributes. |
 | 4 | The event board has no plugin path: a probe cannot read a `Board`, and a plan cannot publish to one. A Task cannot publish yet; thurbox#1729 adds that. | The plugin reads Task results and polls the forge. [Events on the Fleet board](#events-on-the-fleet-board) lists what changes as each slice ships. | A `board` probe type with a cursor, and a plan `publishes[]` verb whose source is `plugin/<name>`. |
@@ -473,7 +494,7 @@ Each has a default that this design already assumes.
 | --- | --- | --- |
 | 1 | Plugin language | TypeScript that Node.js runs unbuilt, no runtime dependency, as fleet-reviewer. |
 | 2 | Config format | JSON with a JSON Schema. YAML would add a dependency. |
-| 3 | Where the factory runs | Its own Fleet config and data directory, rendered by the apply. |
+| 3 | Where the factory runs | Its own Fleet config and data directory, rendered by the apply; or an operator's Fleet config named by `fleetConfig`, which the apply never writes. |
 | 4 | Board writes | The plugin only; agents hold no board credential. |
 | 5 | Build gate | A person sets `factory:ready`. |
 | 6 | Plan | Inside the build Task, as the draft change's body; no separate plan approval. |
