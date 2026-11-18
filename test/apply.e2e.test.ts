@@ -39,13 +39,9 @@ function workspace() {
 }
 
 function factory(dir: string, ...args: string[]) {
-  return factoryOn(process.env.PATH ?? '', dir, ...args);
-}
-
-function factoryOn(path: string, dir: string, ...args: string[]) {
   const r = spawnSync(process.execPath, [FACTORY, ...args], {
     cwd: dir,
-    env: { PATH: path, HOME: dir },
+    env: { PATH: process.env.PATH ?? '', HOME: dir },
     encoding: 'utf8',
     timeout: 120_000,
   });
@@ -97,7 +93,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     expect(r.err).toContain('secret reference');
   });
 
-  it('renders the reviewer login and filters into the ReviewSource', () => {
+  it('renders the reviewer filters, and no login for a personal token', () => {
     const dir = workspace();
     edit(join(dir, 'factory.local.json'), (l) => (l.fleetReviewer = STUB_REVIEWER));
     edit(join(dir, 'factory.json'), (c) => {
@@ -107,7 +103,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     const apply = factory(dir, 'apply');
     expect(apply.code, apply.err).toBe(0);
     const source = JSON.parse(fleet(dir, 'get', 'reviewsource', 'app').stdout);
-    expect(source.spec.forge.login).toBe('review-app[bot]');
+    expect(source.spec.forge.login).toBeUndefined();
     expect(source.spec.filters).toEqual({
       requireLabels: ['factory'],
       ownChanges: true,
@@ -132,14 +128,15 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     edit(join(dir, 'factory.local.json'), (l) => {
       l.fleetReviewer = STUB_REVIEWER;
       l.secrets['reviewer-token'] = {
-        githubApp: { appId: '123', installationId: '456', keyFile, apiUrl: api },
+        githubApp: { appId: '123', installationId: '456', keyFile, apiUrl: `${api}/` },
         as: 'REVIEWER_TOKEN',
       };
     });
     edit(join(dir, 'factory.json'), (c) => {
       c.taskConfigs['factory-review'].secrets = ['reviewer-token'];
+      c.taskConfigs['factory-review'].env = { PATH: `${fakeBin}:${process.env.PATH}` };
     });
-    const apply = factoryOn(`${fakeBin}:${process.env.PATH}`, dir, 'apply');
+    const apply = factory(dir, 'apply');
     expect(apply.code, apply.err).toBe(0);
 
     const provider = JSON.parse(fleet(dir, 'get', 'envprovider', 'secret-reviewer-token').stdout);
@@ -151,7 +148,11 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     expect(resolveProvider()).toEqual({ REVIEWER_TOKEN: 'ghs_minted_1' });
     expect(resolveProvider()).toEqual({ REVIEWER_TOKEN: 'ghs_minted_2' });
 
+    const reviewSource = JSON.parse(fleet(dir, 'get', 'reviewsource', 'app').stdout);
+    expect(reviewSource.spec.forge.login).toBe('REVIEWER_LOGIN');
+
     const review = JSON.parse(fleet(dir, 'get', 'taskconfig', 'factory-review').stdout);
+    expect(review.spec.env.GH_CONFIG_DIR).toBe(join(dir, '.fleet/github-app-gh'));
     expect(review.spec.envFrom ?? []).not.toContainEqual({ name: 'secret-reviewer-token' });
     const sessionGh = () =>
       spawnSync('gh', ['pr', 'review', '--approve'], { env: review.spec.env, encoding: 'utf8' })

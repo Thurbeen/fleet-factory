@@ -60,6 +60,8 @@ function validateSecrets(secrets: Record<string, Secret>) {
 
 const provider = (name: string) => `secret-${name}`;
 
+const apiUrl = (app: GitHubApp) => (app.apiUrl ?? 'https://api.github.com').replace(/\/+$/, '');
+
 function appTokenArgs(app: GitHubApp): string[] {
   return [
     APP_TOKEN,
@@ -70,18 +72,19 @@ function appTokenArgs(app: GitHubApp): string[] {
     '--key-file',
     app.keyFile,
     '--api-url',
-    app.apiUrl ?? 'https://api.github.com',
+    apiUrl(app),
   ];
 }
 
-function appGhEnv(app: GitHubApp): Record<string, string> {
+function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, string> {
   return {
-    PATH: `${APP_GH_DIR}:${process.env.PATH ?? ''}`,
+    PATH: `${APP_GH_DIR}:${path}`,
+    GH_CONFIG_DIR: join(dir, 'github-app-gh'),
     FACTORY_NODE: process.execPath,
     FACTORY_GITHUB_APP_ID: String(app.appId),
     FACTORY_GITHUB_INSTALLATION_ID: String(app.installationId),
     FACTORY_GITHUB_APP_KEY_FILE: app.keyFile,
-    FACTORY_GITHUB_API_URL: app.apiUrl ?? 'https://api.github.com',
+    FACTORY_GITHUB_API_URL: apiUrl(app),
   };
 }
 
@@ -106,7 +109,11 @@ function render(config: J, local: J, dir: string) {
     for (const r of frozen) usedSecrets.add(r);
     const spec: J = { harness: tc.harness, host: tc.host };
     if (tc.model) spec.model = tc.model;
-    const env = { ...tc.env, ...(apps.length ? appGhEnv(secrets[apps[0]].githubApp!) : {}) };
+    const path = tc.env?.PATH ?? process.env.PATH ?? '';
+    const env = {
+      ...tc.env,
+      ...(apps.length ? appGhEnv(secrets[apps[0]].githubApp!, path, dir) : {}),
+    };
     if (Object.keys(env).length) spec.env = env;
     if (frozen.length) spec.envFrom = frozen.map((r: string) => ({ name: provider(r) }));
     objects.push({ kind: 'TaskConfig', name, spec });
@@ -170,7 +177,7 @@ function render(config: J, local: J, dir: string) {
             kind: 'github',
             host: new URL(repo.url).host,
             tokenEnv: envName(reviewerSecret, secrets, 'stages.review.token'),
-            login: review.login,
+            ...(secrets[reviewerSecret].githubApp ? { login: review.login } : {}),
           },
           repositories: [{ project }],
           filters: { requireLabels: [config.board.intakeLabel ?? 'factory'], ...review.filters },

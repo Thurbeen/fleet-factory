@@ -31,7 +31,7 @@ async function main(): Promise<number> {
   }
   const jwt = appJwt(o['app-id'], readFileSync(o['key-file'], 'utf8'));
   const res = await fetch(
-    `${o['api-url']}/app/installations/${encodeURIComponent(o['installation-id'])}/access_tokens`,
+    `${o['api-url'].replace(/\/+$/, '')}/app/installations/${encodeURIComponent(o['installation-id'])}/access_tokens`,
     {
       method: 'POST',
       headers: {

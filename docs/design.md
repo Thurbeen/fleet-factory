@@ -327,13 +327,21 @@ The apply renders this source in two ways:
 - A TaskConfig that names the secret in `secrets` gets no token. It gets `PATH` with
   `bin/github-app-gh` first, and the App's ids and key file path. Each `gh` call in the
   session then runs with a fresh token.
+- The `ReviewSource` gets `forge.login` from `stages.review.login`. GitHub does not let an
+  installation token read its own login. This field needs a fleet-reviewer that knows
+  `forge.login`.
 
-A TaskConfig can name at most one `githubApp` secret. The `PATH` is the `PATH` of the
-apply, so run the apply from a shell that finds `gh` and `node`.
+A TaskConfig can name at most one `githubApp` secret. The wrapper goes before the `PATH`
+of the TaskConfig's `env`. Without one, it goes before the `PATH` of the apply. Give
+`env.PATH` to make the apply give the same result from each shell.
 
-Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate and
-fleet-reviewer compare logins without regard to case and to a final `[bot]`. GitHub's
-GraphQL API, which Fleet reads, names an App without the suffix.
+The TaskConfig also gets `GH_CONFIG_DIR`, an empty directory under `.fleet/`. A `gh` that
+does not go through the wrapper then has no login, and it fails. It does not post as the
+person whose `gh` login the host has.
+
+Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate compares
+logins without regard to case and to a final `[bot]`. GitHub's GraphQL API, which Fleet
+reads, names an App without the suffix.
 
 ### One apply
 
@@ -353,8 +361,8 @@ The apply is idempotent. A second run with the same input writes nothing.
    `bin/secret-env.ts`; one TaskConfig per stage; one `TicketSource` per repository; one
    `ReviewSource` per repository, scoped with `requireLabels: ["factory"]`, so it
    reviews only the factory's changes, and `review.approveAt` from the config. The build Task
-   labels its change `factory`. The `ReviewSource` takes `forge.login` from
-   `stages.review.login`, and `stages.review.filters` adds to or replaces its filters.
+   labels its change `factory`. `stages.review.filters` adds to or replaces the
+   `ReviewSource` filters.
 4. Read each resource with `fleet get`, and compare it with the rendered one.
 5. Print the plan: created, changed, unchanged, and managed objects no longer in the
    config.
