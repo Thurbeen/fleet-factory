@@ -95,10 +95,9 @@ const conclude = (env: Env) =>
   env.result(env.stageTask('build').metadata.name, { changeUrl: CHANGE });
 const progressing = (env: Env) =>
   env.list('ticket')[0].status.conditions.find((c: any) => c.type === 'Progressing');
-const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const STUCK_MS = 4000;
+const HOUR = 3_600_000;
 const stuckAfter = {
-  build: { taskConfig: 'factory-build', readyPolicy: 'checks', stuckAfterMs: STUCK_MS },
+  build: { taskConfig: 'factory-build', readyPolicy: 'checks', stuckAfterMs: HOUR },
 };
 
 describe.skipIf(!FLEET)('the build stage stays on its change until it is ready', () => {
@@ -125,6 +124,20 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(mine(env)[1].text).toContain(NEXT);
   });
 
+  it('amends neither a concluded Task on a draft head that did not fail nor a running one', () => {
+    const { env } = building();
+    env.setChange(11, { state: 'draft', head: failed(HEAD) });
+    env.sweep(3);
+    expect(mine(env)).toHaveLength(0);
+
+    env.setChange(11, { state: 'draft', head: { id: NEXT, checks: 'pending' } });
+    env.sweep(2);
+    conclude(env);
+    env.sweep(3);
+    expect(mine(env)).toHaveLength(0);
+    expect(env.stageTask('build').status.phase).toBe('Concluded');
+  });
+
   it('records the build result only once the change is ready, merged or closed', () => {
     const { build } = building();
     const brief: string = build.spec.brief;
@@ -146,10 +159,10 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(env.list('ticket')[0].status.change).toMatchObject({ head: NEXT, merged: false });
   });
 
-  it('moves a draft that stops moving to Stuck, and back to Building on a new head', async () => {
+  it('moves a draft that stops moving to Stuck, and back to Building on a new head', () => {
     const { env } = building(stuckAfter);
     const comments = env.ticket(1).comments.length;
-    await pause(STUCK_MS + 500);
+    env.backdateHeads(2 * HOUR);
     env.sweep(2);
     expect(phase(env)).toBe('Stuck');
     expect(progressing(env)).toMatchObject({ status: 'False', reason: 'ChangeStuck' });

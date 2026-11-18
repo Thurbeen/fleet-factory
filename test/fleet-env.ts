@@ -117,6 +117,16 @@ export class Env {
     }
   }
 
+  backdateHeads(ms: number) {
+    const dir = join(this.root, 'data/objects', 'ChangeRequest');
+    for (const f of readdirSync(dir)) {
+      const path = join(dir, f);
+      const obj = JSON.parse(readFileSync(path, 'utf8'));
+      obj.status.head.firstSeenAt -= ms;
+      writeFileSync(path, JSON.stringify(obj));
+    }
+  }
+
   readBoard(): { tickets: Record<string, Ticket>; nextComment: number } {
     return JSON.parse(readFileSync(join(this.board, 'board.json'), 'utf8'));
   }
