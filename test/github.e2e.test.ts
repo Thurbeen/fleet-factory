@@ -1,31 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process';
-import { resolve } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { startGitHub, state } from './fake-github.ts';
 import { Env, FLEET, PROJECT } from './fleet-env.ts';
-
-const SERVER = resolve(import.meta.dirname, 'github-server.ts');
-const servers: ChildProcess[] = [];
-
-afterEach(() => {
-  for (const s of servers.splice(0)) s.kill();
-});
-
-async function startGitHub(): Promise<string> {
-  const child = spawn(process.execPath, [SERVER], { stdio: ['ignore', 'pipe', 'inherit'] });
-  servers.push(child);
-  const port = await new Promise<string>((done) =>
-    child.stdout!.once('data', (d) => done(String(d).trim())),
-  );
-  return `http://127.0.0.1:${port}`;
-}
-
-async function state(api: string, patch?: object): Promise<any> {
-  const r = await fetch(`${api}/__state`, {
-    method: patch ? 'PUT' : 'GET',
-    body: patch ? JSON.stringify(patch) : undefined,
-  });
-  return r.json();
-}
 
 async function setup() {
   const api = await startGitHub();

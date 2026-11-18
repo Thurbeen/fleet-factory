@@ -177,6 +177,10 @@
                 }
               }
             },
+            "filters": {
+              "type": "object",
+              "description": "fleet-reviewer ReviewSource filters, merged over requireLabels: [intakeLabel]."
+            },
             "approveAt": {
               "type": "integer",
               "minimum": 1,

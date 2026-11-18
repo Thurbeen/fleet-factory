@@ -1,3 +1,4 @@
+import { createVerify } from 'node:crypto';
 import { createServer } from 'node:http';
 
 type Comment = { id: number; user: { login: string }; body: string };
@@ -17,6 +18,8 @@ type State = {
   login: string;
   nextId: number;
   throttle: boolean;
+  app: { id: string; installationId: string; publicKey: string } | null;
+  minted: number;
 };
 
 const state: State = {
@@ -26,7 +29,21 @@ const state: State = {
   login: 'factory-bot',
   nextId: 1000,
   throttle: false,
+  app: null,
+  minted: 0,
 };
+
+function appJwtValid(authorization: string | undefined): boolean {
+  const app = state.app;
+  const m = /^Bearer ([^.]+)\.([^.]+)\.([^.]+)$/.exec(authorization ?? '');
+  if (!app || !m) return false;
+  const verify = createVerify('RSA-SHA256');
+  verify.update(`${m[1]}.${m[2]}`);
+  if (!verify.verify(app.publicKey, Buffer.from(m[3], 'base64url'))) return false;
+  const claims = JSON.parse(Buffer.from(m[2], 'base64url').toString());
+  const now = Date.now() / 1000;
+  return String(claims.iss) === app.id && claims.iat <= now && claims.exp > now;
+}
 
 function send(res: any, code: number, body: unknown) {
   res.writeHead(code, { 'content-type': 'application/json', connection: 'close' });
@@ -54,6 +71,16 @@ const server = createServer(async (req, res) => {
   if (path === '/__state') {
     if (req.method === 'PUT') Object.assign(state, body);
     return send(res, 200, state);
+  }
+  const mint = /^\/app\/installations\/([^/]+)\/access_tokens$/.exec(path);
+  if (mint && req.method === 'POST') {
+    if (!appJwtValid(req.headers.authorization) || mint[1] !== state.app?.installationId)
+      return send(res, 401, { message: 'A JSON web token could not be decoded' });
+    state.minted += 1;
+    return send(res, 201, {
+      token: `ghs_minted_${state.minted}`,
+      expires_at: '2099-01-01T00:00:00Z',
+    });
   }
   if (req.headers.authorization !== `Bearer ${state.token}`) return send(res, 401, {});
   if (state.throttle) return send(res, 403, { message: 'API rate limit exceeded' });
