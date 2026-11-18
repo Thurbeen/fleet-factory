@@ -31,14 +31,17 @@ jobs:
           WORKFLOW: ${{ github.workflow }}
           HEAD_REF: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$HEAD_REF" \
-            --event pull_request --limit 100 --json databaseId,headSha,status \
-            | jq -r --arg head "$HEAD_SHA" --argjson run "$RUN_ID" '.[]
-                | select(.headSha != $head and .databaseId < $run)
+          gh api "repos/$REPO/actions/runs" -X GET \
+            -f event=pull_request -f branch="$HEAD_REF" -f per_page=100 \
+            | jq -r --arg workflow "$WORKFLOW" --arg repo "$HEAD_REPO" \
+                --arg head "$HEAD_SHA" --argjson run "$RUN_ID" '.workflow_runs[]
+                | select(.name == $workflow and .head_repository.full_name == $repo)
+                | select(.head_sha != $head and .id < $run)
                 | select(.status | IN("queued", "pending", "waiting", "requested", "in_progress"))
-                | "\(.databaseId) \(.headSha)"' \
+                | "\(.id) \(.head_sha)"' \
             | while read -r id sha; do
                 if gh run cancel "$id" --repo "$REPO"; then
                   echo "cancelled run $id of head $sha"
