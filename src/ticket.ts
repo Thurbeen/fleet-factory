@@ -182,7 +182,7 @@ function mergeGate(cr: J, spec: SourceSpec, ticket: TicketView): MergeGate | nul
   const s = cr?.status ?? {};
   const head = s.head?.id;
   if (!head || s.state?.value !== 'open' || !s.everReady) return null;
-  if (s.head?.checks !== 'passed' || Number(s.threads?.unresolved ?? 1) !== 0) return null;
+  if (s.head?.checks !== 'passed') return null;
   const approver = spec.approver;
   if (!approver || ticket.labels.includes(spec.merge.holdLabel)) return null;
   const approved = (s.reviews ?? []).some(
@@ -194,6 +194,8 @@ function mergeGate(cr: J, spec: SourceSpec, ticket: TicketView): MergeGate | nul
   if (decision === 'approved') return { counted: true, head };
   return { counted: false, head, approver, decision };
 }
+
+const unresolvedThreads = (cr: J) => Number(cr?.status?.threads?.unresolved ?? 1);
 
 export function reconcile(req: J): J {
   const me = req.object;
@@ -389,6 +391,12 @@ function build(
   status.phase = 'InReview';
   const gate = mergeGate(cr, spec, ticket);
   if (!gate) return plan;
+  const unresolved = unresolvedThreads(cr);
+  if (unresolved !== 0) {
+    const message = `${unresolved} unresolved threads on ${url} at ${gate.head}; feature.ticket="${me.spec.key}"`;
+    progressing(me, status, 'False', 'ThreadsUnresolved', message, now);
+    return plan;
+  }
   if (!gate.counted) {
     status.conditions = [
       ...status.conditions,
