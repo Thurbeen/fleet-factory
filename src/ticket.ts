@@ -206,6 +206,7 @@ export function reconcile(req: J): J {
     ticket && ticket.state === 'open' && ticket.labels.includes(spec.board.intakeLabel);
   if (!inScope) {
     status.phase = 'Dropped';
+    status.change = null;
     status.conditions = [
       condition(st.conditions, 'InScope', 'False', ticket ? 'NotLabelled' : 'Gone', '', now),
     ];
@@ -318,7 +319,7 @@ function build(
       taskManifest(me, 'build', {
         configRef: { name: spec.build.taskConfig },
         workspace: [`git+${spec.repository.url}#${spec.repository.branch}`],
-        brief: buildBrief(ticket, status.refinement),
+        brief: buildBrief(ticket, status.refinement, status.change?.url ?? null),
         dispatch: hasCapacity(obs.buildQueue, stageName(me, 'build'), spec.maxActive.build),
         outputs: { changeUrl: { type: 'string', required: true } },
         ...(spec.build.readyPolicy ? { forge: { draft: { policy: spec.build.readyPolicy } } } : {}),
@@ -353,6 +354,7 @@ function build(
   }
   if (state === 'closed') {
     status.phase = 'Closed';
+    status.change = null;
     return plan;
   }
   if (state !== 'open') return plan;
