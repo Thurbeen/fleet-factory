@@ -283,7 +283,7 @@ function appSecret(dir: string, appId: string, as: string) {
   return { githubApp: { appId, installationId: `${as}-installation`, keyFile }, as };
 }
 
-const sharedIdentities: [string, (dir: string) => void, string][] = [
+const sharedIdentities: [string, (dir: string) => void, string, string][] = [
   [
     'the same App',
     (dir) =>
@@ -292,11 +292,13 @@ const sharedIdentities: [string, (dir: string) => void, string][] = [
         l.secrets['reviewer-token'] = appSecret(dir, '123', 'REVIEWER_TOKEN');
       }),
     'board.token',
+    'stages.review.token',
   ],
   [
     'the same secret',
     (dir) => edit(join(dir, 'factory.json'), (c) => (c.forge.token = { secret: 'reviewer-token' })),
     'forge.token',
+    'stages.review.token',
   ],
   [
     'the same command',
@@ -305,6 +307,7 @@ const sharedIdentities: [string, (dir: string) => void, string][] = [
         l.secrets['reviewer-token'] = { ...l.secrets['author-token'], as: 'REVIEWER_TOKEN' };
       }),
     'board.token',
+    'stages.review.token',
   ],
   [
     'the same file',
@@ -319,13 +322,29 @@ const sharedIdentities: [string, (dir: string) => void, string][] = [
       );
     },
     'taskConfigs.factory-build.secrets[0]',
+    'stages.review.token',
+  ],
+  [
+    'the same App, through the review session',
+    (dir) => {
+      edit(join(dir, 'factory.local.json'), (l) => {
+        l.secrets['author-token'] = appSecret(dir, '123', 'GITHUB_TOKEN');
+        l.secrets['reviewer-token'] = appSecret(dir, '456', 'REVIEWER_TOKEN');
+      });
+      edit(
+        join(dir, 'factory.json'),
+        (c) => (c.taskConfigs['factory-review'].secrets = ['author-token']),
+      );
+    },
+    'board.token',
+    'taskConfigs.factory-review.secrets[0]',
   ],
 ];
 
 describe.skipIf(!FLEET)('build and review identities stay apart', () => {
   it.each(sharedIdentities)(
     'refuses a review token that resolves to %s as a build-side token',
-    (_, share, buildPath) => {
+    (_, share, buildPath, reviewPath) => {
       const dir = workspace();
       share(dir);
       for (const command of ['plan', 'apply']) {
@@ -333,7 +352,7 @@ describe.skipIf(!FLEET)('build and review identities stay apart', () => {
         expect(r.code, r.out).toBe(1);
         expect(r.err).toMatch(/^factory: /);
         expect(r.err).toContain(buildPath);
-        expect(r.err).toContain('stages.review.token');
+        expect(r.err).toContain(reviewPath);
       }
       expect(existsSync(join(dir, '.fleet'))).toBe(false);
     },

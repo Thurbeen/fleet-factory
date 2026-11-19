@@ -66,6 +66,8 @@ describe.skipIf(!FLEET)('the GitHub Issues board through a real fleet', () => {
     expect(env.list('ticket').map((t) => t.spec.key)).toEqual([`${PROJECT}#7`]);
     const task = env.refineTask();
     expect(task.spec.brief).toContain('https://github.test/example/app/issues/7');
+    expect(task.spec.brief).toContain('Opened by: maintainer');
+    expect(task.spec.brief).toContain('ticket author decided it in the body');
 
     env.result(task.metadata.name, {
       state: 'needs-decision',
