@@ -123,10 +123,12 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `4. Emit each criterion's signal, tagged with the attribute feature.ticket="${t.key}".`,
     `5. End every post on the forge with your worker mark. Never mark the change ready and never`,
     `   merge it: Fleet and the factory do that once the checks and the review pass.`,
-    `6. Stay on the change until Fleet marks the change ready, or until it is merged or closed.`,
-    `   Answer each check failure, review note and amendment that reaches you with new pushes.`,
-    `   Never record a result while the change is a draft.`,
-    `7. Then record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
+    `6. Once the change's checks pass and every note on it is answered, record your result.`,
+    `   Fleet marks a draft ready only after you record your result, so never wait for it first:`,
+    `   fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
+    `7. Keep your session. Answer each check failure and review note that reaches you after that`,
+    `   with new pushes. An amendment re-opens your Task at a new generation: record your result`,
+    `   again for that generation once its checks pass.`,
   ].join('\n');
 }
 
@@ -199,8 +201,9 @@ export function failedChecksAmendment(
 ): string {
   return [
     `The checks failed on head ${head}.`,
-    `Your change ${url} is still a draft. Fix the failing checks with new pushes, and record a`,
-    `result only once Fleet marks the change ready, or it is merged or closed.`,
+    `Your change ${url} is still a draft. Fix the failing checks with new pushes, then record`,
+    `your result for this generation once the checks pass.`,
+    `Fleet marks a draft ready only after you record your result.`,
     ``,
     ...(failing.length
       ? failing.map((c) => `- ${c.name ?? 'check'}${c.url ? `: ${c.url}` : ''}`)

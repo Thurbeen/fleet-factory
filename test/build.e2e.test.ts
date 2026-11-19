@@ -112,6 +112,10 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(mine(env)).toHaveLength(1);
     expect(mine(env)[0].text).toContain(HEAD);
     expect(mine(env)[0].text).toContain('CI');
+    expect(mine(env)[0].text).not.toContain('only once Fleet marks the change ready');
+    expect(mine(env)[0].text).toContain(
+      'Fleet marks a draft ready only after you record your result',
+    );
     expect(mine(env)[0].reason).toContain(`feature.ticket="${TICKET}"`);
 
     env.sweep(3);
@@ -138,13 +142,22 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(env.stageTask('build').status.phase).toBe('Concluded');
   });
 
-  it('records the build result only once the change is ready, merged or closed', () => {
-    const { build } = building();
+  it('takes a passing draft out of draft once the build Task records its result', () => {
+    const { env, build } = building();
+    env.setChange(11, { state: 'draft', head: { id: HEAD, checks: 'passed' } });
+    env.rest();
+    env.sweep(3);
+    expect(env.forgeState().changes[`${PROJECT}/11`].state).toBe('draft');
+
     const brief: string = build.spec.brief;
-    const waits = brief.indexOf('until Fleet marks the change ready');
-    expect(waits).toBeGreaterThan(-1);
-    expect(brief.indexOf('fleet result')).toBeGreaterThan(waits);
-    expect(brief).toContain('Never record a result while the change is a draft');
+    expect(brief).not.toContain('Never record a result while the change is a draft');
+    expect(brief).toContain('Fleet marks a draft ready only after you record your result');
+
+    env.result(build.metadata.name, { changeUrl: CHANGE });
+    env.rest();
+    env.sweep(4);
+    expect(env.forgeState().changes[`${PROJECT}/11`].state).toBe('open');
+    expect(phase(env)).toBe('InReview');
   });
 
   it('shows the declared change and follows its head while building', () => {
