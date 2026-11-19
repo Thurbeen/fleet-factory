@@ -61,6 +61,7 @@ export function approve(env: Env, extra: object = {}) {
   env.setChange(11, {
     state: 'open',
     head: { id: HEAD, checks: 'passed' },
+    reviewDecision: 'approved',
     reviews: [{ id: 'r1', author: 'reviewer-bot', state: 'approved', head: HEAD }],
     ...extra,
   });

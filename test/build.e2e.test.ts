@@ -57,6 +57,31 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(env.list('ticket')[0].status.change).toMatchObject({ url: CHANGE, head: HEAD });
   });
 
+  it("waits, and says why, while GitHub does not count the approver's approval", () => {
+    const { env } = building();
+    approve(env, { reviewDecision: 'none' });
+    expect(env.merges()).toHaveLength(0);
+    expect(phase(env)).toBe('InReview');
+    const ticket = env.list('ticket')[0];
+    expect(ticket.status.mergeRequested).toBeNull();
+    expect(ticket.status.conditions.find((c: any) => c.type === 'MergeReady')).toMatchObject({
+      status: 'False',
+      reason: 'ApprovalNotCounted',
+      message: `reviewer-bot approved ${HEAD} but GitHub reports review decision none`,
+    });
+
+    approve(env);
+    expect(env.merges()).toEqual([{ url: CHANGE, head: HEAD, method: 'squash' }]);
+    expect(phase(env)).toBe('Merging');
+    const merging = env.list('ticket')[0];
+    expect(merging.status.mergeRequested).toBe(HEAD);
+    expect(merging.status.conditions.find((c: any) => c.type === 'MergeReady')).toMatchObject({
+      status: 'True',
+    });
+    env.sweep(2);
+    expect(env.merges()).toHaveLength(1);
+  });
+
   it('merges on the approval of a GitHub App, which Fleet records without its [bot] suffix', () => {
     const { env } = building({ review: { approver: 'Review-App[bot]' } });
     approve(env, {
