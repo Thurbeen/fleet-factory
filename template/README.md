@@ -24,6 +24,9 @@ explains each stage and gate.
    and the source of each secret, a file or a command with absolute paths.
    Add `"as": "REVIEWER_TOKEN"` to `reviewer-token`; see [Secrets](#secrets). For a GitHub
    App as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+   The reviewer resolves its own fixed threads, and GitHub allows that only with write
+   access to the repository; see [Resolving its threads](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#resolving-its-threads).
+   Without it, a person resolves each reviewer thread before the change can merge.
 
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these

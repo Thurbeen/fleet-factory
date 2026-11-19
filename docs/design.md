@@ -86,11 +86,14 @@ flowchart TD
    its findings to the build Task. A new push makes fleet-reviewer amend its review. The
    build Task never resolves a thread, and a reply or a push alone resolves nothing.
    Pending a change to fleet-reviewer's brief
-   ([#20](https://github.com/Thurbeen/fleet-factory/issues/20)): when a review of the
+   ([fleet-reviewer#15](https://github.com/Thurbeen/fleet-reviewer/issues/15)): when a review of the
    change's current head confirms a finding fixed, fleet-reviewer resolves that finding's
    thread in the same pass. It resolves only the threads its own login opened. A finding
    the current head's review does not confirm keeps its thread open and goes back to the
-   build Task. Until that change ships, a person resolves the reviewer's fixed threads.
+   build Task. A resolve GitHub refuses is named in that pass's review body for a person.
+   Until that change ships, a person resolves the reviewer's fixed threads. The reviewer
+   identity needs the access GitHub requires to resolve a thread; see
+   [Resolving its threads](#resolving-its-threads).
 7. **Merge.** No person takes part. fleet-reviewer approves the exact head it reviewed when
    its confidence reaches the threshold. Its approval of a head still counts after a
    thread on that head is resolved. When the merge gate holds, the plugin asks the
@@ -192,6 +195,11 @@ unchanged for `stages.build.stuckAfterMs` (default 4 hours, from Fleet's `head.f
 or a build Task that concluded with no change, moves the Ticket to `Stuck`, with condition
 `Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck Ticket amends, deletes
 and posts nothing; a new head returns it to `Building`.
+
+When the reviewer approved the current head and its checks passed, but threads stay
+unresolved, the Ticket stays `InReview` with `Progressing=False`, reason
+`ThreadsUnresolved`, and the count in the message. It writes nothing to the forge. The
+pass that requests auto-merge replaces the reason.
 
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
@@ -362,6 +370,17 @@ person whose `gh` login the host has.
 Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate compares
 logins without regard to case and to a final `[bot]`. GitHub's GraphQL API, which Fleet
 reads, names an App without the suffix.
+
+#### Resolving its threads
+
+GitHub lets an account resolve a pull request conversation only when it opened the pull
+request or has write access to the repository
+([GitHub Docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/commenting-on-a-pull-request)).
+The GraphQL reference for `resolveReviewThread` names no App permission, and an App that
+could post reviews was refused with `Resource not accessible by integration`. Give the
+reviewer identity write access to the repository, then check it with one resolve before
+relying on unattended merges. The factory never changes the App; granting the access is the
+operator's step.
 
 ### One apply
 
