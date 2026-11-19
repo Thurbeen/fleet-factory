@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Unknown } from './board/types.ts';
+import { tokenFrom } from './util.ts';
 
 export type ForgeRef = { kind: string; tokenEnv?: string; apiUrl?: string };
 export type MergeRequest = { url: string; head: string; method: string };
@@ -27,8 +28,7 @@ async function fakeMerge(req: MergeRequest) {
 }
 
 async function github(ref: ForgeRef, method: string, path: string, body?: unknown): Promise<any> {
-  const token = process.env[ref.tokenEnv ?? 'GITHUB_TOKEN'];
-  if (!token) throw new Unknown(`${ref.tokenEnv ?? 'GITHUB_TOKEN'} is not set`);
+  const token = tokenFrom(ref.tokenEnv);
   let res: Response;
   try {
     res = await fetch(`${(ref.apiUrl ?? 'https://api.github.com').replace(/\/+$/, '')}${path}`, {

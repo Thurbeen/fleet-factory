@@ -19,6 +19,7 @@ import {
   LABEL_TICKET,
   MARKER_REFINEMENT,
   type SourceSpec,
+  WORKER_MARK,
   WRITERS,
   boardRef,
   condition,
@@ -106,13 +107,31 @@ function currentResult(task: J): J | null {
   return Number(r.generation) === Number(task.metadata.generation) ? r : null;
 }
 
-function refinement(result: J, humanAreas: string[]) {
+type Said = { type: string; permission: string; body: string };
+
+function byPerson(said: Said): boolean {
+  return (
+    said.type === 'User' && WRITERS.includes(said.permission) && !said.body.includes(WORKER_MARK)
+  );
+}
+
+function humanDeciders(ticket: TicketView, relayed: number[]): string[] {
+  const author = byPerson({ ...ticket.author, body: ticket.body }) ? [ticket.author.login] : [];
+  const answerers = ticket.comments
+    .filter((c) => relayed.includes(c.id) && byPerson(c))
+    .map((c) => c.author);
+  return [...author, ...answerers];
+}
+
+function refinement(result: J, humanAreas: string[], deciders: string[]) {
   const o = result.outputs ?? {};
   const list = (v: unknown) => (Array.isArray(v) ? v : []);
   const decisions = list(o.decisions);
   const questions = list(o.questions);
+  const decidedByPerson = (by: unknown) =>
+    typeof by === 'string' && deciders.some((login) => sameLogin(login, by));
   const undecided = decisions.filter(
-    (d: J) => humanAreas.includes(d?.area) && (!d?.by || d.by === 'agent'),
+    (d: J) => humanAreas.includes(d?.area) && !decidedByPerson(d?.by),
   );
   const refined = o.state === 'refined' && questions.length === 0 && undecided.length === 0;
   return {
@@ -128,8 +147,7 @@ function answers(ticket: TicketView, relayed: number[]): CommentView[] {
   const asked = ticket.comments.find((c) => c.factory === MARKER_REFINEMENT);
   if (!asked) return [];
   return ticket.comments.filter(
-    (c) =>
-      c.id > asked.id && !c.factory && WRITERS.includes(c.permission) && !relayed.includes(c.id),
+    (c) => c.id > asked.id && !c.factory && byPerson(c) && !relayed.includes(c.id),
   );
 }
 
@@ -249,17 +267,20 @@ export function reconcile(req: J): J {
   );
 
   const result = currentResult(refineTask);
+  const relayed = relayedComments(refineTask);
   if (!result) {
     if (!buildTask) return plan;
   } else {
-    const r = refinement(result, spec.humanDecisions);
+    const r = refinement(result, spec.humanDecisions, humanDeciders(ticket!, relayed));
     status.refinement = r;
-    if (status.posted !== r.generation) {
+    const flipped = status.posted === r.generation && st.refinement?.state !== r.state;
+    if (status.posted !== r.generation || flipped) {
       const refined = r.state === 'refined';
+      const post = flipped ? `${r.generation}/${r.state}/${now}` : `${r.generation}`;
       status.phase = refined ? 'Refined' : 'NeedsDecision';
       plan.effects = [
         {
-          key: `refinement/${r.generation}`,
+          key: `refinement/${post}`,
           request: {
             op: 'comment',
             board,
@@ -269,7 +290,7 @@ export function reconcile(req: J): J {
           },
         },
         {
-          key: `labels/${r.generation}`,
+          key: `labels/${post}`,
           request: {
             op: 'labels',
             board,
@@ -284,7 +305,7 @@ export function reconcile(req: J): J {
     }
     if (r.state !== 'refined') {
       status.phase = 'NeedsDecision';
-      const fresh = answers(ticket!, relayedComments(refineTask));
+      const fresh = answers(ticket!, relayed);
       if (fresh.length) {
         plan.amends = [
           {

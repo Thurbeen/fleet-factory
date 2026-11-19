@@ -10,6 +10,7 @@ export function refined(stages: object = {}): Env {
     title: 'Export invoices as CSV',
     body: 'Customers want CSV.',
     labels: ['factory'],
+    author: { login: 'maintainer', type: 'User', permission: 'write' },
   });
   for (const name of ['factory-refine', 'factory-build', 'factory-watch'])
     env.apply({

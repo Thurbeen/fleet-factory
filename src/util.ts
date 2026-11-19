@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { Unknown } from './board/types.ts';
 
 export type J = any;
 
@@ -9,10 +10,23 @@ export const LABEL_STAGE = 'fleet-factory/stage';
 export const MARKER_REFINEMENT = 'refinement';
 export const ACTIVE_PHASES = ['Pending', 'Spawning', 'Spawned', 'Briefed'];
 export const WRITERS = ['admin', 'maintain', 'write'];
+export const WORKER_MARK = '<!-- fleet:worker';
 
 export function sameLogin(a: string, b: string): boolean {
-  const bare = (login: string) => login.toLowerCase().replace(/\[bot\]$/, '');
+  const bare = (login: string) =>
+    login
+      .trim()
+      .replace(/^@/, '')
+      .toLowerCase()
+      .replace(/\[bot\]$/, '');
   return bare(a) === bare(b);
+}
+
+export function tokenFrom(env: string | undefined): string {
+  const name = env ?? 'GITHUB_TOKEN';
+  const token = process.env[name];
+  if (!token) throw new Unknown(process.env[`${name}_ERROR`] ?? `${name} is not set`);
+  return token;
 }
 
 export function marker(name: string): string {

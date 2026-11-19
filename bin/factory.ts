@@ -11,6 +11,7 @@ const PLUGIN = join(ROOT, 'src/plugin.ts');
 const SECRET_ENV = join(ROOT, 'bin/secret-env.ts');
 const APP_TOKEN = join(ROOT, 'bin/github-app-token.ts');
 const APP_GH_DIR = join(ROOT, 'bin/github-app-gh');
+const APP_GIT_CREDENTIAL = join(ROOT, 'bin/git-credential-github-app');
 const MANAGED = 'fleet-factory/managed';
 
 class ConfigError extends Error {}
@@ -107,7 +108,9 @@ function tomlValue(section: string, key: string): string {
   return rest;
 }
 
-function registration(toml: string, p: PluginEntry): 'present' | 'missing' | 'differs' {
+type Registration = 'present' | 'missing' | 'differs';
+
+function registration(toml: string, p: PluginEntry): Registration {
   const section = tomlSection(toml, `[plugins.${p.name}]`);
   if (section === null) return 'missing';
   const [program] = tomlStrings(tomlValue(section, 'program'));
@@ -120,6 +123,16 @@ function registration(toml: string, p: PluginEntry): 'present' | 'missing' | 'di
     JSON.stringify(args) === JSON.stringify(p.args) &&
     p.envFrom.every((n) => envFrom.includes(n));
   return same ? 'present' : 'differs';
+}
+
+function hostRegistration(toml: string, host: string, cli: string): Registration {
+  const section = tomlSection(toml, '[forge.hosts]') ?? '';
+  const line = section
+    .split('\n')
+    .find((l) => tomlStrings(l.split('=')[0])[0] === host || l.split('=')[0].trim() === host);
+  if (!line) return 'missing';
+  const [registered] = tomlStrings(/\bcli\s*=\s*("[^"]*"|'[^']*')/.exec(line)?.[1] ?? '');
+  return registered === cli ? 'present' : 'differs';
 }
 
 const apiUrl = (app: GitHubApp) => (app.apiUrl ?? 'https://api.github.com').replace(/\/+$/, '');
@@ -138,7 +151,25 @@ function appTokenArgs(app: GitHubApp): string[] {
   ];
 }
 
-function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, string> {
+function appGitConfig(repositories: URL[]): [string, string][] {
+  const perOrigin = repositories.flatMap((repo): [string, string][] => {
+    const rewrite = `url.${repo.origin}/.insteadOf`;
+    return [
+      [`credential.${repo.origin}.helper`, APP_GIT_CREDENTIAL],
+      [rewrite, `git@${repo.hostname}:`],
+      [rewrite, `ssh://git@${repo.hostname}/`],
+    ];
+  });
+  return [['credential.helper', ''], ...perOrigin];
+}
+
+function appSessionEnv(
+  app: GitHubApp,
+  path: string,
+  dir: string,
+  repositories: URL[],
+): Record<string, string> {
+  const git = appGitConfig(repositories);
   return {
     PATH: `${APP_GH_DIR}:${path}`,
     GH_CONFIG_DIR: join(dir, 'github-app-gh'),
@@ -147,7 +178,62 @@ function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, str
     FACTORY_GITHUB_INSTALLATION_ID: String(app.installationId),
     FACTORY_GITHUB_APP_KEY_FILE: app.keyFile,
     FACTORY_GITHUB_API_URL: apiUrl(app),
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_CONFIG_COUNT: String(git.length),
+    ...Object.fromEntries(
+      git.flatMap(([key, value], i) => [
+        [`GIT_CONFIG_KEY_${i}`, key],
+        [`GIT_CONFIG_VALUE_${i}`, value],
+      ]),
+    ),
   };
+}
+
+const shellWord = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+
+function forgeGh(app: GitHubApp): string {
+  return [
+    '#!/bin/sh',
+    'set -eu',
+    `GH_TOKEN=$(${[process.execPath, ...appTokenArgs(app)].map(shellWord).join(' ')})`,
+    'GH_ENTERPRISE_TOKEN=$GH_TOKEN',
+    'export GH_TOKEN GH_ENTERPRISE_TOKEN',
+    'exec gh "$@"',
+    '',
+  ].join('\n');
+}
+
+function sameSource(a: Secret, b: Secret): boolean {
+  if (a.githubApp && b.githubApp)
+    return (
+      String(a.githubApp.appId) === String(b.githubApp.appId) &&
+      apiUrl(a.githubApp) === apiUrl(b.githubApp)
+    );
+  if (a.command && b.command) return JSON.stringify(a.command) === JSON.stringify(b.command);
+  return !!a.file && a.file === b.file;
+}
+
+function refuseOneIdentity(config: J, secrets: Record<string, Secret>) {
+  const build = config.stages?.build;
+  const reviewSecret = config.stages?.review?.token?.secret;
+  if (!build || !secrets[reviewSecret]) return;
+  for (const name of config.taskConfigs?.[build.taskConfig]?.secrets ?? []) {
+    if (!secrets[name]) continue;
+    if (name === reviewSecret || sameSource(secrets[name], secrets[reviewSecret]))
+      throw new ConfigError(
+        `the build secret ${name} and the review secret ${reviewSecret} are one identity; ` +
+          'GitHub never counts an approval by the author of a change, so give the review its own App',
+      );
+  }
+}
+
+function appOf(config: J, secrets: Record<string, Secret>, taskConfig?: string) {
+  const names: string[] = config.taskConfigs?.[taskConfig ?? '']?.secrets ?? [];
+  return names.map((n) => secrets[n]?.githubApp).find(Boolean) ?? null;
+}
+
+function explicitApiUrl(secret: Secret) {
+  return secret.githubApp?.apiUrl ? { apiUrl: apiUrl(secret.githubApp) } : {};
 }
 
 function render(config: J, local: J, dir: string, pluginCwd: string) {
@@ -155,6 +241,12 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
   const scoped = (name: string) => `${config.name}-${name}`;
   const provider = (secret: string) => scoped(`secret-${secret}`);
   validateSecrets(secrets);
+  refuseOneIdentity(config, secrets);
+  const repositories: URL[] = [
+    ...new Map<string, URL>(
+      (config.repositories ?? []).map((r: J) => [new URL(r.url).origin, new URL(r.url)]),
+    ).values(),
+  ];
   const labels = { [MANAGED]: String(config.name) };
   const boardSecret = secretRef(config.board?.token, 'board.token', secrets);
   const forgeSecret = secretRef(config.forge?.token, 'forge.token', secrets);
@@ -176,7 +268,7 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
     const path = tc.env?.PATH ?? process.env.PATH ?? '';
     const env = {
       ...tc.env,
-      ...(apps.length ? appGhEnv(secrets[apps[0]].githubApp!, path, dir) : {}),
+      ...(apps.length ? appSessionEnv(secrets[apps[0]].githubApp!, path, dir, repositories) : {}),
     };
     if (Object.keys(env).length) spec.env = env;
     if (frozen.length) spec.envFrom = frozen.map((r: string) => ({ name: provider(r) }));
@@ -198,7 +290,12 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
       : {
           type: 'command',
           program: process.execPath,
-          args: [SECRET_ENV, envName(name, secrets, `secrets.${name}`), ...command],
+          args: [
+            SECRET_ENV,
+            ...(s.githubApp ? ['--report-failure'] : []),
+            envName(name, secrets, `secrets.${name}`),
+            ...command,
+          ],
           cwd: dir,
           timeoutMs: 10000,
         };
@@ -226,9 +323,14 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
         project: config.board.project,
         intakeLabel: config.board.intakeLabel ?? 'factory',
         tokenEnv: envName(boardSecret, secrets, 'board.token'),
+        ...explicitApiUrl(secrets[boardSecret]),
       },
       repository: { url: repo.url, branch: repo.branch ?? 'main' },
-      forge: { kind: config.forge.kind, tokenEnv: envName(forgeSecret, secrets, 'forge.token') },
+      forge: {
+        kind: config.forge.kind,
+        tokenEnv: envName(forgeSecret, secrets, 'forge.token'),
+        ...explicitApiUrl(secrets[forgeSecret]),
+      },
       stages,
     };
     if (config.policy) spec.policy = config.policy;
@@ -285,6 +387,11 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
       .map(([k, v]) => `${k} = ${typeof v === 'string' ? q(v) : JSON.stringify(v)}`)
       .join('\n');
   const host = new URL(config.repositories?.[0]?.url ?? 'https://github.com').host;
+  const authorApp = config.stages?.build
+    ? appOf(config, secrets, config.stages.build.taskConfig)
+    : null;
+  const forgeCli = authorApp ? { path: join(dir, 'forge-gh'), content: forgeGh(authorApp) } : null;
+  const forgeHost = `${q(host)} = { kind = "github", cli = ${q(forgeCli?.path ?? 'gh')} }`;
   const toml = [
     'version = 1',
     '',
@@ -297,7 +404,7 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
     '[forge]',
     '',
     '[forge.hosts]',
-    `${q(host)} = { kind = "github", cli = "gh" }`,
+    forgeHost,
     '',
     '[forge.readyPolicies.checks]',
     'checksPassed = true',
@@ -317,6 +424,7 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
   return {
     toml,
     plugins,
+    forge: { host, line: forgeHost, cli: forgeCli },
     objects: objects.map((o) => ({
       apiVersion: 'fleet/v1alpha1',
       kind: o.kind,
@@ -324,6 +432,12 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
       spec: o.spec,
     })),
   };
+}
+
+function writeAtomically(path: string, content: string, mode = 0o644) {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(`${path}.tmp`, content, { mode });
+  renameSync(`${path}.tmp`, path);
 }
 
 function fleet(fleetBin: string, config: string, ...args: string[]) {
@@ -367,7 +481,7 @@ function main(argv: string[]): number {
     return r.status ?? 1;
   }
 
-  const { toml, plugins, objects } = render(config, local, dir, operatorConfig ? ROOT : dir);
+  const { toml, plugins, forge, objects } = render(config, local, dir, operatorConfig ? ROOT : dir);
   const lines: string[] = [];
   const unregistered: string[] = [];
   let tomlChanged = false;
@@ -381,10 +495,22 @@ function main(argv: string[]): number {
       unregistered.push(`[plugins.${p.name}]`);
       lines.push(`${state} [plugins.${p.name}] in ${operatorConfig}; it needs:\n${pluginToml(p)}`);
     }
+    const host = forge.cli && hostRegistration(operatorToml, forge.host, forge.cli.path);
+    if (host && host !== 'present') {
+      unregistered.push(`[forge.hosts] "${forge.host}"`);
+      lines.push(
+        `${host} [forge.hosts] "${forge.host}" in ${operatorConfig}; it needs:\n[forge.hosts]\n${forge.line}`,
+      );
+    }
   } else {
     tomlChanged = !existsSync(tomlPath) || readFileSync(tomlPath, 'utf8') !== toml;
     if (tomlChanged) lines.push(`${existsSync(tomlPath) ? 'update' : 'create'} ${tomlPath}`);
   }
+  const cliChanged =
+    !!forge.cli &&
+    (!existsSync(forge.cli.path) || readFileSync(forge.cli.path, 'utf8') !== forge.cli.content);
+  if (forge.cli && cliChanged)
+    lines.push(`${existsSync(forge.cli.path) ? 'update' : 'create'} ${forge.cli.path}`);
   const storeKnown = existsSync(tomlPath);
 
   const changed: J[] = [];
@@ -422,11 +548,8 @@ function main(argv: string[]): number {
       `add ${unregistered.join(' and ')} to ${operatorConfig} as plan prints them, then apply again`,
     );
 
-  if (tomlChanged) {
-    mkdirSync(dirname(tomlPath), { recursive: true });
-    writeFileSync(`${tomlPath}.tmp`, toml);
-    renameSync(`${tomlPath}.tmp`, tomlPath);
-  }
+  if (forge.cli && cliChanged) writeAtomically(forge.cli.path, forge.cli.content, 0o755);
+  if (tomlChanged) writeAtomically(tomlPath, toml);
   if (changed.length) {
     mkdirSync(dir, { recursive: true });
     const file = join(dir, 'apply.json');

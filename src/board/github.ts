@@ -1,5 +1,5 @@
 import { type Board, type BoardRef, type CommentView, type TicketView, Unknown } from './types.ts';
-import { PLUGIN, marker } from '../util.ts';
+import { PLUGIN, marker, tokenFrom } from '../util.ts';
 
 const PAGE = 100;
 const MAX_PAGES = 10;
@@ -9,8 +9,7 @@ function api(ref: BoardRef): string {
 }
 
 async function call(ref: BoardRef, method: string, path: string, body?: unknown): Promise<any> {
-  const token = process.env[ref.tokenEnv ?? 'GITHUB_TOKEN'];
-  if (!token) throw new Unknown(`${ref.tokenEnv ?? 'GITHUB_TOKEN'} is not set`);
+  const token = tokenFrom(ref.tokenEnv);
   let res: Response;
   try {
     res = await fetch(`${api(ref)}${path}`, {
@@ -83,7 +82,8 @@ export const github: Board = {
     if (!issue || issue.pull_request) return null;
     const raw = await comments(ref, number);
     const permission = new Map<string, string>();
-    for (const login of new Set(raw.map((c) => c.user?.login).filter(Boolean))) {
+    const logins = [issue.user?.login, ...raw.map((c) => c.user?.login)].filter(Boolean);
+    for (const login of new Set(logins)) {
       const p = await call(ref, 'GET', `${repo(ref)}/collaborators/${login}/permission`);
       permission.set(login, p?.permission ?? 'none');
     }
@@ -93,11 +93,17 @@ export const github: Board = {
       url: issue.html_url,
       title: issue.title ?? '',
       body: issue.body ?? '',
+      author: {
+        login: issue.user?.login ?? '',
+        type: issue.user?.type ?? '',
+        permission: permission.get(issue.user?.login) ?? 'none',
+      },
       state: issue.state === 'closed' ? 'closed' : 'open',
       labels: labelsOf(issue),
       comments: raw.map((c): CommentView => ({
         id: c.id,
         author: c.user?.login ?? '',
+        type: c.user?.type ?? '',
         permission: permission.get(c.user?.login) ?? 'none',
         body: c.body ?? '',
         factory: factoryMarker(c.body),
