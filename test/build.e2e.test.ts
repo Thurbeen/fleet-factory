@@ -82,6 +82,50 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(env.merges()).toHaveLength(1);
   });
 
+  it('keeps a ticket its own merge closes, and follows the change to Merged', () => {
+    const { env } = building();
+    approve(env);
+    expect(phase(env)).toBe('Merging');
+
+    env.setTicket({ number: 1, state: 'closed', labels: ['factory', 'factory:ready'] });
+    env.sweep(3);
+    expect(phase(env)).toBe('Merging');
+    expect(env.stageTask('build')).toBeDefined();
+
+    env.setChange(11, { state: 'merged', head: { id: HEAD, checks: 'passed' } });
+    env.sweep(3);
+    expect(phase(env)).toBe('Merged');
+    expect(env.list('ticket')[0].status.change).toMatchObject({ url: CHANGE, merged: true });
+  });
+
+  it('keeps a ticket closed by a merge it did not request, and follows the change to Merged', () => {
+    const { env } = building();
+    env.setChange(11, { state: 'open', head: { id: HEAD, checks: 'passed' } });
+    env.sweep(2);
+    env.setTicket({ number: 1, state: 'closed', labels: ['factory', 'factory:ready'] });
+    env.sweep(3);
+    expect(phase(env)).toBe('InReview');
+
+    env.setChange(11, { state: 'merged', head: { id: HEAD, checks: 'passed' } });
+    env.sweep(3);
+    expect(phase(env)).toBe('Merged');
+  });
+
+  it('drops a closed ticket whose change stays open, and never merges it', () => {
+    const { env } = building();
+    env.setTicket({ number: 1, state: 'closed', labels: ['factory', 'factory:ready'] });
+    env.sweep(2);
+    approve(env);
+    expect(env.merges()).toHaveLength(0);
+    expect(phase(env)).not.toBe('Dropped');
+
+    env.backdateTicketStatus('closedSeenAt', 11 * 60_000);
+    env.rest();
+    env.sweep(3);
+    expect(phase(env)).toBe('Dropped');
+    expect(env.merges()).toHaveLength(0);
+  });
+
   it('merges on the approval of a GitHub App, which Fleet records without its [bot] suffix', () => {
     const { env } = building({ review: { approver: 'Review-App[bot]' } });
     approve(env, {
