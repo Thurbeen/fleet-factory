@@ -83,9 +83,20 @@ flowchart TD
       the worker mark on every post.
 6. **Review.** Fleet follows the declared change. When the ready policy holds, Fleet takes
    the draft out of draft. fleet-reviewer then reviews the ready change, and Fleet relays
-   its findings to the build Task. A new push makes fleet-reviewer amend its review.
+   its findings to the build Task. A new push makes fleet-reviewer amend its review. The
+   build Task never resolves a thread, and a reply or a push alone resolves nothing.
+   Pending a change to fleet-reviewer's brief
+   ([fleet-reviewer#15](https://github.com/Thurbeen/fleet-reviewer/issues/15)): when a review of the
+   change's current head confirms a finding fixed, fleet-reviewer resolves that finding's
+   thread in the same pass. It resolves only the threads its own login opened. A finding
+   the current head's review does not confirm keeps its thread open and goes back to the
+   build Task. A resolve GitHub refuses is named in that pass's review body for a person.
+   Until that change ships, a person resolves the reviewer's fixed threads. The reviewer
+   identity needs the access GitHub requires to resolve a thread; see
+   [Resolving its threads](#resolving-its-threads).
 7. **Merge.** No person takes part. fleet-reviewer approves the exact head it reviewed when
-   its confidence reaches the threshold. When the merge gate holds, the plugin asks the
+   its confidence reaches the threshold. Its approval of a head still counts after a
+   thread on that head is resolved. When the merge gate holds, the plugin asks the
    forge to auto-merge the change with a squash. The gate also needs the forge to count
    that approval: GitHub's review decision must be `approved`. Until it is, the ticket
    stays `InReview` with `MergeReady=False`, reason `ApprovalNotCounted`. The forge merges
@@ -187,6 +198,11 @@ or a build Task that concluded with no change, moves the Ticket to `Stuck`, with
 `Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck Ticket amends, deletes
 and posts nothing; a new head returns it to `Building`.
 
+When the reviewer approved the current head and its checks passed, but threads stay
+unresolved, the Ticket stays `InReview` with `Progressing=False`, reason
+`ThreadsUnresolved`, and the count in the message. It writes nothing to the forge. The
+pass that requests auto-merge replaces the reason.
+
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
 A dropped change keeps its branch; the factory deletes nothing on the forge.
@@ -204,7 +220,7 @@ its gate holds.
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
-| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head, and the forge counts that approval (review decision `approved`); no thread is unresolved; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
+| Merge | Fleet marked the change ready; its checks passed; the reviewer login, `stages.review.login`, approved the current head, and the forge counts that approval (review decision `approved`); no thread is unresolved: a thread a person or another bot opened waits for its author, and the reviewer's own fixed threads are resolved as the Review step says; the ticket has no `factory:hold` label. The plugin then requests auto-merge, and the forge merges when its rules hold. | Reviewer threshold 4, squash. |
 | Release, deploy | The forge's own approvals. The factory only observes. | Forge rules. |
 | Watch | A release contains the merge commit, and the watch window has passed. | GitHub Release, 24 hours. |
 | Follow-up | Findings exist and the parent has fewer than the cap of follow-ups. | Label `factory:proposed`, cap 3. |
@@ -399,6 +415,17 @@ access. Give the reviewer App Contents write on the target repository, next to t
 requests access it uses to review. It needs no admin, no entry on a bypass list and no
 other permission. Without Contents write its approval stays uncounted, and the ticket waits
 with reason `ApprovalNotCounted`.
+
+#### Resolving its threads
+
+GitHub lets an account resolve a pull request conversation only when it opened the pull
+request or has write access to the repository
+([GitHub Docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/commenting-on-a-pull-request)).
+For the reviewer App, that write access is the Contents write the previous paragraph gives
+it. The GraphQL reference for `resolveReviewThread` names no App permission, and an App that
+could post reviews was refused with `Resource not accessible by integration`, so check the
+grant with one resolve before relying on unattended merges. The factory never changes the
+App; granting the access is the operator's step.
 
 ### One apply
 
