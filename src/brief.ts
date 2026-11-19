@@ -126,8 +126,9 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `6. Once the change's checks pass and every note on it is answered, record your result.`,
     `   Fleet marks a draft ready only after you record your result, so never wait for it first:`,
     `   fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
-    `7. Keep your session. A check failure, review note or amendment that reaches you after that`,
-    `   re-opens your work: answer it with new pushes, then record your result again.`,
+    `7. Keep your session. Answer each check failure and review note that reaches you after that`,
+    `   with new pushes. An amendment re-opens your Task at a new generation: record your result`,
+    `   again for that generation once its checks pass.`,
   ].join('\n');
 }
 

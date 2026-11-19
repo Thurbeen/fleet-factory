@@ -179,14 +179,14 @@ stateDiagram-v2
 Once its change's checks pass and every note is answered, the build Task records its result.
 Fleet's ready policies all include `workerDone`, a shipped result for the Task's current
 generation, so Fleet takes the draft out of draft only after that. The Task keeps its
-session: a check failure, review note or amendment that reaches it later re-opens its work.
-While it builds, `status.change` holds the change's URL and current head. If the Task
-concludes while its change is a draft whose head checks failed, the plugin amends the same
-Task once per head, naming the failing checks. A draft head unchanged for
-`stages.build.stuckAfterMs` (default 4 hours, from Fleet's `head.firstSeenAt`), or a build
-Task that concluded with no change, moves the Ticket to `Stuck`, with condition
-`Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck Ticket amends, deletes
-and posts nothing; a new head returns it to `Building`.
+session: it answers later check failures and review notes with new pushes, and an amendment
+re-opens it at a new generation. While it builds, `status.change` holds the change's URL and
+current head. If the Task concludes while its change is a draft whose head checks failed,
+the plugin amends the same Task once per head, naming the failing checks. A draft head
+unchanged for `stages.build.stuckAfterMs` (default 4 hours, from Fleet's
+`head.firstSeenAt`), or a build Task that concluded with no change, moves the Ticket to
+`Stuck`, with condition `Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck
+Ticket amends, deletes and posts nothing; a new head returns it to `Building`.
 
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
