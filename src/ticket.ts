@@ -206,6 +206,7 @@ export function reconcile(req: J): J {
     ticket && ticket.state === 'open' && ticket.labels.includes(spec.board.intakeLabel);
   if (!inScope) {
     status.phase = 'Dropped';
+    status.change = null;
     status.conditions = [
       condition(st.conditions, 'InScope', 'False', ticket ? 'NotLabelled' : 'Gone', '', now),
     ];
@@ -353,6 +354,7 @@ function build(
   }
   if (state === 'closed') {
     status.phase = 'Closed';
+    status.change = null;
     return plan;
   }
   if (state !== 'open') return plan;
