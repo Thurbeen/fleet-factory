@@ -19,8 +19,8 @@ import {
   LABEL_TICKET,
   MARKER_REFINEMENT,
   type SourceSpec,
-  WRITERS,
   boardRef,
+  isPerson,
   condition,
   deleting,
   known,
@@ -106,13 +106,21 @@ function currentResult(task: J): J | null {
   return Number(r.generation) === Number(task.metadata.generation) ? r : null;
 }
 
-function refinement(result: J, humanAreas: string[]) {
+function deciders(ticket: TicketView, relayed: number[]): Set<string> {
+  const people = new Set<string>();
+  if (isPerson(ticket.author, ticket.body)) people.add(ticket.author.login.toLowerCase());
+  for (const c of ticket.comments)
+    if (relayed.includes(c.id) && isPerson(c, c.body)) people.add(c.author.toLowerCase());
+  return people;
+}
+
+function refinement(result: J, humanAreas: string[], people: Set<string>) {
   const o = result.outputs ?? {};
   const list = (v: unknown) => (Array.isArray(v) ? v : []);
   const decisions = list(o.decisions);
   const questions = list(o.questions);
   const undecided = decisions.filter(
-    (d: J) => humanAreas.includes(d?.area) && (!d?.by || d.by === 'agent'),
+    (d: J) => humanAreas.includes(d?.area) && !people.has(String(d?.by ?? '').toLowerCase()),
   );
   const refined = o.state === 'refined' && questions.length === 0 && undecided.length === 0;
   return {
@@ -128,8 +136,7 @@ function answers(ticket: TicketView, relayed: number[]): CommentView[] {
   const asked = ticket.comments.find((c) => c.factory === MARKER_REFINEMENT);
   if (!asked) return [];
   return ticket.comments.filter(
-    (c) =>
-      c.id > asked.id && !c.factory && WRITERS.includes(c.permission) && !relayed.includes(c.id),
+    (c) => c.id > asked.id && !c.factory && isPerson(c, c.body) && !relayed.includes(c.id),
   );
 }
 
@@ -252,7 +259,11 @@ export function reconcile(req: J): J {
   if (!result) {
     if (!buildTask) return plan;
   } else {
-    const r = refinement(result, spec.humanDecisions);
+    const r = refinement(
+      result,
+      spec.humanDecisions,
+      deciders(ticket!, relayedComments(refineTask)),
+    );
     status.refinement = r;
     if (status.posted !== r.generation) {
       const refined = r.state === 'refined';

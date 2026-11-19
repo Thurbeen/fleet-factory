@@ -11,7 +11,14 @@ if (!FLEET && process.env.FLEET_E2E_REQUIRED) {
   throw new Error('FLEET_E2E_REQUIRED is set but FLEET_BIN is not');
 }
 
-export type Comment = { id: number; author: string; permission: string; body: string };
+export type Comment = {
+  id: number;
+  author: string;
+  permission: string;
+  body: string;
+  type?: string;
+};
+export type Author = { login: string; type: string; permission: string };
 export type Ticket = {
   number: number;
   title: string;
@@ -19,7 +26,10 @@ export type Ticket = {
   state: string;
   labels: string[];
   comments: Comment[];
+  author?: Author;
 };
+
+export const MAINTAINER: Author = { login: 'maintainer', type: 'User', permission: 'write' };
 
 export class Env {
   extraEnv: Record<string, string>;
@@ -27,7 +37,7 @@ export class Env {
   config = join(this.root, 'fleet.toml');
   board = join(this.root, 'board');
 
-  constructor(extraEnv: Record<string, string> = {}) {
+  constructor(extraEnv: Record<string, string> = {}, envFrom: string[] = []) {
     this.extraEnv = extraEnv;
     mkdirSync(this.board);
     mkdirSync(join(this.root, 'forge'));
@@ -53,6 +63,9 @@ export class Env {
         'callTimeoutMs = 10000',
         'tasks = "own"',
         `passEnv = ${JSON.stringify(['FLEET_FACTORY_FAKE_DIR', ...Object.keys(extraEnv)])}`,
+        ...(envFrom.length
+          ? [`envFrom = [${envFrom.map((n) => `{ name = ${JSON.stringify(n)} }`).join(', ')}]`]
+          : []),
         '',
       ].join('\n'),
     );
@@ -149,6 +162,7 @@ export class Env {
       state: 'open',
       labels: [],
       comments: [],
+      author: MAINTAINER,
     };
     b.tickets[key] = { ...base, ...t };
     this.writeBoard(b);

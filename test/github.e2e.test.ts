@@ -12,6 +12,7 @@ async function setup() {
         body: 'Customers want CSV.',
         state: 'open',
         labels: ['factory'],
+        user: { login: 'maintainer', type: 'User' },
         comments: [],
       },
       [`${PROJECT}#8`]: {
@@ -24,7 +25,14 @@ async function setup() {
         pull_request: {},
       },
     },
-    permissions: { maintainer: 'write', 'drive-by': 'read', 'factory-bot': 'write' },
+    permissions: {
+      maintainer: 'write',
+      answerer: 'write',
+      operator: 'admin',
+      'drive-by': 'read',
+      'factory-bot': 'write',
+      'helper-app[bot]': 'write',
+    },
   });
   const env = new Env({ FACTORY_BOARD_TOKEN: 'test-token' });
   env.apply({
@@ -58,6 +66,8 @@ describe.skipIf(!FLEET)('the GitHub Issues board through a real fleet', () => {
     expect(env.list('ticket').map((t) => t.spec.key)).toEqual([`${PROJECT}#7`]);
     const task = env.refineTask();
     expect(task.spec.brief).toContain('https://github.test/example/app/issues/7');
+    expect(task.spec.brief).toContain('Opened by: maintainer');
+    expect(task.spec.brief).toContain('ticket author decided it in the body');
 
     env.result(task.metadata.name, {
       state: 'needs-decision',
@@ -106,5 +116,78 @@ describe.skipIf(!FLEET)('the GitHub Issues board through a real fleet', () => {
     expect(source.status.unknown.why).toContain('rate limit');
     expect(Object.keys(source.status.tickets)).toEqual([`${PROJECT}#7`]);
     expect(env.list('ticket')).toHaveLength(1);
+  });
+});
+
+const WORKER_MARK = '<!-- fleet:worker u1-0123456789abcdef -->';
+const QUESTION = { id: 'q1', text: 'Which columns?', area: 'scope' };
+const decidedBy = (by: string) => ({
+  state: 'refined',
+  decisions: [{ id: 'd1', text: 'Date and total.', area: 'scope', by }],
+  questions: [],
+});
+
+async function addComment(api: string, user: object, body: string) {
+  const s = await state(api);
+  const issue = s.issues[`${PROJECT}#7`];
+  issue.comments.push({ id: s.nextId, user, body });
+  await state(api, { issues: s.issues, nextId: s.nextId + 1 });
+}
+
+const labelsOf = async (api: string): Promise<string[]> =>
+  (await state(api)).issues[`${PROJECT}#7`].labels;
+
+const notPeople: [string, { login: string; type: string }, string][] = [
+  ['a Bot account', { login: 'helper-app[bot]', type: 'Bot' }, 'Date and total.'],
+  ['a non-collaborator', { login: 'drive-by', type: 'User' }, 'Date and total.'],
+  [
+    'the author of a worker-marked comment',
+    { login: 'operator', type: 'User' },
+    `Date and total.\n\n${WORKER_MARK}`,
+  ],
+];
+
+describe.skipIf(!FLEET)('the Refined gate counts only a person who can write', () => {
+  it.each(notPeople)(
+    'keeps a human-area decision by %s at needs-decision, and never relays its comment',
+    async (_, user, body) => {
+      const { env, api } = await setup();
+      const task = env.refineTask();
+      await addComment(api, user, body);
+      env.result(task.metadata.name, decidedBy(user.login));
+      env.sweep(2);
+      expect(await labelsOf(api)).toContain('factory:needs-decision');
+      expect(await labelsOf(api)).not.toContain('factory:refined');
+
+      await addComment(api, user, body);
+      env.sweep(2);
+      expect(env.get('task', task.metadata.name).spec.amendments ?? []).toEqual([]);
+    },
+  );
+
+  it('refines a human-area decision by the ticket author, whatever the case of the login', async () => {
+    const { env, api } = await setup();
+    env.result(env.refineTask().metadata.name, decidedBy('Maintainer'));
+    env.sweep(2);
+    expect(await labelsOf(api)).toContain('factory:refined');
+  });
+
+  it('refines a human-area decision by the author of a relayed answer', async () => {
+    const { env, api } = await setup();
+    const task = env.refineTask();
+    env.result(task.metadata.name, { state: 'needs-decision', questions: [QUESTION] });
+    env.sweep(2);
+    expect(await labelsOf(api)).toContain('factory:needs-decision');
+
+    await addComment(api, { login: 'answerer', type: 'User' }, 'Date and total.');
+    env.sweep(2);
+    const amended = env.get('task', task.metadata.name);
+    expect(amended.spec.amendments).toHaveLength(1);
+    expect(amended.spec.amendments[0].text).toContain('answerer wrote');
+
+    env.result(task.metadata.name, decidedBy('answerer'));
+    env.sweep(2);
+    expect(await labelsOf(api)).toContain('factory:refined');
+    expect(await labelsOf(api)).not.toContain('factory:needs-decision');
   });
 });

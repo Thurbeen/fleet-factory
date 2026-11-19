@@ -5,38 +5,89 @@
     "kind": "github-issues",
     "project": "OWNER/app",
     "intakeLabel": "factory",
-    "token": { "secret": "board-token" }
+    "token": {
+      "secret": "author-token"
+    }
   },
-  "forge": { "kind": "github", "token": { "secret": "board-token" } },
-  "repositories": [{ "name": "app", "url": "https://github.com/OWNER/app", "branch": "main" }],
+  "forge": {
+    "kind": "github",
+    "token": {
+      "secret": "author-token"
+    }
+  },
+  "repositories": [
+    {
+      "name": "app",
+      "url": "https://github.com/OWNER/app",
+      "branch": "main"
+    }
+  ],
   "taskConfigs": {
-    "factory-refine": { "harness": "claude", "host": "local" },
-    "factory-build": { "harness": "claude", "host": "local" },
-    "factory-review": { "harness": "claude", "host": "local" },
+    "factory-refine": {
+      "harness": "claude",
+      "host": "local",
+      "secrets": ["author-token"]
+    },
+    "factory-build": {
+      "harness": "claude",
+      "host": "local",
+      "secrets": ["author-token"]
+    },
+    "factory-review": {
+      "harness": "claude",
+      "host": "local",
+      "secrets": ["reviewer-token"]
+    },
     "factory-watch": {
       "harness": "claude",
       "host": "local",
-      "env": { "OBS_KIND": "grafana", "OBS_URL": "https://grafana.example.com" },
+      "env": {
+        "OBS_KIND": "grafana",
+        "OBS_URL": "https://grafana.example.com"
+      },
       "secrets": ["observability-token"]
     }
   },
   "stages": {
-    "refine": { "taskConfig": "factory-refine" },
-    "build": { "taskConfig": "factory-build", "readyPolicy": "checks-and-bots" },
+    "refine": {
+      "taskConfig": "factory-refine"
+    },
+    "build": {
+      "taskConfig": "factory-build",
+      "readyPolicy": "checks-and-bots"
+    },
     "review": {
       "taskConfig": "factory-review",
-      "login": "REVIEWER_LOGIN",
-      "token": { "secret": "reviewer-token" },
+      "login": "REVIEWER_APP_SLUG[bot]",
+      "token": {
+        "secret": "reviewer-token"
+      },
       "approveAt": 4
     },
-    "watch": { "taskConfig": "factory-watch", "afterMs": 86400000 }
+    "watch": {
+      "taskConfig": "factory-watch",
+      "afterMs": 86400000
+    }
   },
   "policy": {
     "buildGate": "label",
-    "maxActive": { "refine": 3, "build": 2 },
+    "maxActive": {
+      "refine": 3,
+      "build": 2
+    },
     "humanDecisions": ["scope", "pricing", "data-retention", "security", "user-facing-copy"],
-    "followUps": { "label": "factory:proposed", "max": 3 }
+    "followUps": {
+      "label": "factory:proposed",
+      "max": 3
+    }
   },
-  "merge": { "method": "squash", "holdLabel": "factory:hold" },
-  "observability": { "fleetExport": { "endpoint": "http://localhost:4318" } }
+  "merge": {
+    "method": "squash",
+    "holdLabel": "factory:hold"
+  },
+  "observability": {
+    "fleetExport": {
+      "endpoint": "http://localhost:4318"
+    }
+  }
 }

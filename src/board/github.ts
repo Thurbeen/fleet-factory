@@ -83,7 +83,8 @@ export const github: Board = {
     if (!issue || issue.pull_request) return null;
     const raw = await comments(ref, number);
     const permission = new Map<string, string>();
-    for (const login of new Set(raw.map((c) => c.user?.login).filter(Boolean))) {
+    const logins = [issue.user?.login, ...raw.map((c) => c.user?.login)].filter(Boolean);
+    for (const login of new Set(logins)) {
       const p = await call(ref, 'GET', `${repo(ref)}/collaborators/${login}/permission`);
       permission.set(login, p?.permission ?? 'none');
     }
@@ -95,9 +96,15 @@ export const github: Board = {
       body: issue.body ?? '',
       state: issue.state === 'closed' ? 'closed' : 'open',
       labels: labelsOf(issue),
+      author: {
+        login: issue.user?.login ?? '',
+        type: issue.user?.type ?? '',
+        permission: permission.get(issue.user?.login) ?? 'none',
+      },
       comments: raw.map((c): CommentView => ({
         id: c.id,
         author: c.user?.login ?? '',
+        type: c.user?.type ?? '',
         permission: permission.get(c.user?.login) ?? 'none',
         body: c.body ?? '',
         factory: factoryMarker(c.body),

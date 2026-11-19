@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Board, type BoardRef, type TicketView, Unknown } from './types.ts';
+import { type Board, type BoardRef, type Person, type TicketView, Unknown } from './types.ts';
 import { PLUGIN, marker } from '../util.ts';
 
 type Stored = {
@@ -8,7 +8,8 @@ type Stored = {
   body: string;
   state: 'open' | 'closed';
   labels: string[];
-  comments: { id: number; author: string; permission: string; body: string }[];
+  author?: Person;
+  comments: { id: number; author: string; type?: string; permission: string; body: string }[];
 };
 type State = { tickets: Record<string, Stored>; nextComment: number };
 
@@ -69,7 +70,12 @@ export const fake: Board = {
       body: t.body,
       state: t.state,
       labels: t.labels,
-      comments: t.comments.map((c) => ({ ...c, factory: factoryMarker(c.body) })),
+      author: t.author ?? { login: '', type: '', permission: 'none' },
+      comments: t.comments.map((c) => ({
+        ...c,
+        type: c.type ?? 'User',
+        factory: factoryMarker(c.body),
+      })),
     };
     return view;
   },
@@ -85,7 +91,7 @@ export const fake: Board = {
       return { id: existing.id };
     }
     const id = s.nextComment++;
-    t.comments.push({ id, author: PLUGIN, permission: 'write', body: text });
+    t.comments.push({ id, author: PLUGIN, type: 'Bot', permission: 'write', body: text });
     save(s);
     return { id };
   },

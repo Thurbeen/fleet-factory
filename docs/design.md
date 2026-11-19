@@ -107,7 +107,7 @@ The plugin owns the ticket's journey and the board. Everything else already has 
 | Concern | Owner | How the factory uses it |
 | --- | --- | --- |
 | Agent sessions, workspaces, briefs, inbox, results, amendments | Fleet `Task` | The plugin creates, dispatches, amends and deletes stage Tasks through its plan. |
-| Shared harness, place, model and environment | Fleet `TaskConfig`, `EnvProvider` | The apply writes one TaskConfig per stage. Secrets enter only through EnvProvider file or command sources. |
+| Shared harness, place, model and environment | Fleet `TaskConfig`, `EnvProvider` | The apply writes one TaskConfig per stage. Secrets enter only through EnvProvider file or command sources, or a GitHub App wrapper that mints a token per use. |
 | Following a change, relaying checks and notes, mark ready | Fleet `ChangeRequest`, ForgeController, `[forge.readyPolicies]` | The build Task declares its change. The `Ticket` reads the ChangeRequest from the store. |
 | Code review | fleet-reviewer `ReviewSource`, `Review` | The apply writes one ReviewSource per repository. The factory adds no review logic. |
 | Merge, required checks, approvals, release, deploy | The forge: rulesets, auto-merge, Actions, environments | The plugin requests auto-merge, then reads the merge and the release. It checks that the guardrails exist. It never writes them. |
@@ -200,7 +200,7 @@ its gate holds.
 | --- | --- | --- |
 | Intake | The ticket is open and carries the intake label. | Label `factory`. |
 | Guardrails | The target branch's active forge rules require a pull request with at least one approval, resolved threads, and the required checks, and the repository allows auto-merge. Read once per source pass. A rule's bypass list is readable only by an admin, so keeping the factory's identities off it is the operator's duty. | Required. A source whose guardrails are Unknown or missing starts no build. |
-| Refined | The refine Task's latest result answers every question, and each decision in a human-owned area names a person's answer. | Areas: scope, pricing, data retention, security, user-facing copy. |
+| Refined | The refine Task's latest result answers every question, and each decision in a human-owned area has `by` naming, without regard to case, the ticket's author or the author of a relayed answer; that author's type is `User`, can write, and wrote no worker mark. | Areas: scope, pricing, data retention, security, user-facing copy. |
 | Build approved | A person set `factory:ready` after the decisions were posted. | Label. `policy.buildGate: auto` skips it. |
 | Capacity | Fewer than `maxActive` Tasks of the stage run for the source. | refine 3, build 2, watch 3. |
 | Ready for review | Fleet's ready policy holds on the declared change. | `checks-and-bots`. |
@@ -234,14 +234,15 @@ One interface, one adapter per board kind. The first version ships `github-issue
 | Operation | Half | Meaning |
 | --- | --- | --- |
 | `list(scope)` | observe | Open tickets with the intake label: key, URL, labels, updated time. |
-| `read(key)` | observe | Title, body, state, labels, and comments with author, author's permission and markers. |
+| `read(key)` | observe | Title, body, state, labels, the author, and comments; each author with account type and permission, each comment with its markers. |
 | `comment(key, marker, body)` | perform | Create or edit the comment that carries the marker. |
 | `labels(key, add, remove)` | perform | Change labels. |
 | `create(project, marker, ticket)` | perform | File a ticket whose body carries the marker; a found marker answers with the existing ticket. |
 
-A comment counts as a person's answer only when its author can write to the repository
-and is not a factory identity. A Jira adapter maps the same five operations; nothing above
-the adapter changes.
+A comment counts as a person's answer only when its author's account type is `User`, the
+author can write to the repository, and its text carries no worker mark,
+`<!-- fleet:worker`. The plugin never relays any other comment to the refine Task. A Jira
+adapter maps the same five operations; nothing above the adapter changes.
 
 ### Events on the Fleet board
 
@@ -315,53 +316,78 @@ checkouts, the Fleet runtime section, and the source of each secret.
 
 [`template/factory.local.example.json`](../template/factory.local.example.json) shows it.
 
-### A GitHub App as the reviewer
+### The factory's identity
 
-A GitHub App can review and approve the factory's changes. Its installation token expires
-one hour after GitHub issues it. A review Task stays open until its change merges, and Fleet
-freezes a Task's environment at launch. A token in that environment therefore expires.
+The factory acts on GitHub as two GitHub Apps, never as the operator's login:
 
-A `githubApp` secret source holds no token. It names the App, its installation and its
-private key file:
+| Identity | Acts for | Secret references in `factory.json` |
+| --- | --- | --- |
+| The author App | The board, the merge gate, the refine and the build stages | `board.token`, `forge.token`, the refine and build TaskConfigs' `secrets` |
+| The review App | fleet-reviewer and the review stage | `stages.review.token`, the review TaskConfig's `secrets` |
+
+GitHub never counts an approval by a change's author, so one App for both could never merge.
+`factory plan`, and so `apply` and `up`, refuses a config where `stages.review.token`, or a
+`githubApp` secret of the review TaskConfig, and any of `board.token`, `forge.token` or the
+build TaskConfig's secrets name the same secret, the same App `appId`, or the same `command`
+or `file`. The error names both paths. The refine
+stage opens no change, so it is not checked.
+
+Each reference may name a `githubApp` secret source, which holds no token. It names the App,
+its installation and its private key file:
 
 ```json
-"reviewer-token": {
+"author-token": {
   "githubApp": {"appId": "APP_ID", "installationId": "INSTALLATION_ID",
                 "keyFile": "/ABSOLUTE/PATH/app.private-key.pem"},
-  "as": "REVIEWER_TOKEN"
+  "as": "GITHUB_TOKEN"
 }
 ```
 
-`apiUrl` is optional. Its default is `https://api.github.com`.
+`apiUrl` is optional. Its default is `https://api.github.com`. A `command` or a `file` source,
+such as a user token from `gh auth token`, still works and renders as before.
 
-The apply renders this source in two ways:
+An installation token expires one hour after GitHub issues it, and Fleet freezes a Task's
+environment at launch. The apply therefore renders a `githubApp` source so that each use
+mints a fresh token:
 
-- The secret's EnvProvider runs `bin/github-app-token.ts`. Fleet resolves the plugin's
-  `envFrom` for each sweep, so fleet-reviewer reads a fresh token at each sweep.
-- A TaskConfig that names the secret in `secrets` gets no token. It gets `PATH` with
-  `bin/github-app-gh` first, and the App's ids and key file path. Each `gh` call in the
-  session then runs with a fresh token.
+- Board and forge: the secret's EnvProvider runs `bin/github-app-token.ts`. Fleet resolves a
+  plugin's `envFrom` for each sweep, so each plugin sweep reads a new token. The same holds
+  for fleet-reviewer with the review secret.
+- A TaskConfig that names the secret in `secrets` gets no token in `env` or `envFrom`. It
+  gets `PATH` with `bin/github-app-gh` first, and the App's ids and key file path. Each `gh`
+  call in the session runs with a new token.
+- `git push` in that session asks the same wrapper. The TaskConfig's `env` sets
+  `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n` and `GIT_CONFIG_VALUE_n`: first `credential.helper`
+  with an empty value, which drops every helper the host configures, then
+  `credential.<forge origin>.helper` set to `!gh auth git-credential`, one per repository
+  origin. Each credential request then mints a token. `GIT_TERMINAL_PROMPT=0` stops git from
+  asking for one.
 - The `ReviewSource` gets `forge.login` from `stages.review.login`. GitHub does not let an
   installation token read its own login. This field needs a fleet-reviewer that knows
   `forge.login`.
+
+A session fails closed. The TaskConfig gets `GH_CONFIG_DIR`, an empty directory under
+`.fleet/`, so a `gh` that skips the wrapper has no login. When minting fails, the wrapper
+prints `github-app-token: HTTP <status>` and exits non-zero, so `gh` and `git push` fail; neither
+falls back to the host's login.
 
 A TaskConfig can name at most one `githubApp` secret. The wrapper goes before the `PATH`
 of the TaskConfig's `env`. Without one, it goes before the `PATH` of the apply. Give
 `env.PATH` to make the apply give the same result from each shell.
 
-The TaskConfig also gets `GH_CONFIG_DIR`, an empty directory under `.fleet/`. A `gh` that
-does not go through the wrapper then has no login, and it fails. It does not post as the
-person whose `gh` login the host has.
-
 GitHub counts an approval toward a required review only from an account with write
-access. Give the App Contents write on the target repository, next to the Pull requests
-access it uses to review. It needs no admin, no entry on a bypass list and no other
+access. Give the review App Contents write on the target repository, next to the Pull
+requests access it uses to review. It needs no admin, no entry on a bypass list and no other
 permission. Without Contents write its approval stays uncounted, and the ticket waits with
 reason `ApprovalNotCounted`.
 
-Set `stages.review.login` to the App's login, `APP_SLUG[bot]`. The merge gate compares
+Set `stages.review.login` to the review App's login, `APP_SLUG[bot]`. The merge gate compares
 logins without regard to case and to a final `[bot]`. GitHub's GraphQL API, which Fleet
 reads, names an App without the suffix.
+
+Fleet's ChangeRequest observer still reads with the engine's `gh` login: a `[forge.hosts]`
+entry takes `kind` and `cli` only. It only reads status, so GitHub credits nobody for it.
+[Engine gaps](#engine-gaps) lists it.
 
 ### One apply
 
@@ -434,9 +460,10 @@ providers. The entry's `cwd` is the fleet-factory checkout.
 | Promote a follow-up ticket | A collaborator, with the intake label | The Intake gate |
 | Change the factory | Whoever may push to the factory's IaC repository | That repository's own review |
 
-The factory's identities are never in a bypass list. The worker identity opens changes;
-the reviewer identity reviews them, so fleet-reviewer does not skip the worker's changes
-and the forge does not count a self-approval.
+The factory's identities are never in a bypass list. The author App opens changes; the
+review App reviews them, so fleet-reviewer does not skip the author's changes and the forge
+does not count a self-approval. [The factory's identity](#the-factorys-identity) describes
+both.
 
 ## Engine gaps
 
@@ -452,6 +479,7 @@ the factory, and a proposal for thurbox.
 | 5 | Plugin probes share no per-host budget with Fleet's forge polls. | The plugin meters its own GitHub calls in its source's status. | fleet-reviewer's proposal 1, which covers both plugins. |
 | 6 | An amendment from a plugin reaches the worker as a peer's message. | The refine brief says, in advance, that answers relayed from the ticket are decisions to apply. | None needed for the factory. |
 | 7 | A release pipeline runs off the manager, so it cannot publish a deploy event to a board. | The plugin polls the forge for releases. | Remote publishing, the last slice of thurbox#1729, or a forge-to-board bridge. |
+| 8 | A `[forge.hosts]` entry takes `kind` and `cli` only, with no credential, as of Fleet 3.17.2. | The ChangeRequest observer reads status with the engine's `gh` login. It writes nothing, so the author App stays the actor of every factory write. | A credential on the forge host, such as an `envFrom` EnvProvider, so the apply can render the author App's token there. |
 
 ## Testing strategy
 
