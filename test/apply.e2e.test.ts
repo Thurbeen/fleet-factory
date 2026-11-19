@@ -272,3 +272,105 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     expect(JSON.stringify([provider, review])).not.toContain('PRIVATE KEY');
   });
 });
+
+const ROOT = resolve(import.meta.dirname, '..');
+
+function appSecret(dir: string, appId: string, as: string) {
+  const keyFile = join(dir, `${appId}-${as}.pem`);
+  writeFileSync(keyFile, 'unused', { mode: 0o600 });
+  return { githubApp: { appId, installationId: `${as}-installation`, keyFile }, as };
+}
+
+const sharedIdentities: [string, (dir: string) => void, string][] = [
+  [
+    'the same App',
+    (dir) =>
+      edit(join(dir, 'factory.local.json'), (l) => {
+        l.secrets['board-token'] = appSecret(dir, '123', 'GITHUB_TOKEN');
+        l.secrets['reviewer-token'] = appSecret(dir, '123', 'REVIEWER_TOKEN');
+      }),
+    'board.token',
+  ],
+  [
+    'the same secret',
+    (dir) => edit(join(dir, 'factory.json'), (c) => (c.forge.token = { secret: 'reviewer-token' })),
+    'forge.token',
+  ],
+  [
+    'the same command',
+    (dir) =>
+      edit(join(dir, 'factory.local.json'), (l) => {
+        l.secrets['reviewer-token'] = { ...l.secrets['board-token'], as: 'REVIEWER_TOKEN' };
+      }),
+    'board.token',
+  ],
+  [
+    'the same file',
+    (dir) => {
+      edit(join(dir, 'factory.local.json'), (l) => {
+        l.secrets['build-token'] = { file: join(dir, 'tokens.json') };
+        l.secrets['reviewer-token'] = { file: join(dir, 'tokens.json') };
+      });
+      edit(
+        join(dir, 'factory.json'),
+        (c) => (c.taskConfigs['factory-build'].secrets = ['build-token']),
+      );
+    },
+    'taskConfigs.factory-build.secrets[0]',
+  ],
+];
+
+describe.skipIf(!FLEET)('build and review identities stay apart', () => {
+  it.each(sharedIdentities)(
+    'refuses a review token that resolves to %s as a build-side token',
+    (_, share, buildPath) => {
+      const dir = workspace();
+      share(dir);
+      for (const command of ['plan', 'apply']) {
+        const r = factory(dir, command);
+        expect(r.code, r.out).toBe(1);
+        expect(r.err).toMatch(/^factory: /);
+        expect(r.err).toContain(buildPath);
+        expect(r.err).toContain('stages.review.token');
+      }
+      expect(existsSync(join(dir, '.fleet'))).toBe(false);
+    },
+  );
+});
+
+describe.skipIf(!FLEET)('user-token configs keep their rendering', () => {
+  it('plans command and file secrets to the same objects and plugin TOML as before', async () => {
+    const dir = workspace();
+    edit(join(dir, 'factory.local.json'), (l) => {
+      l.fleetReviewer = STUB_REVIEWER;
+      l.secrets['build-token'] = { command: ['/bin/echo', 'build-secret'], as: 'GH_TOKEN' };
+      l.secrets['refine-token'] = { file: join(dir, 'refine.json') };
+    });
+    edit(join(dir, 'factory.json'), (c) => {
+      c.taskConfigs['factory-build'].secrets = ['build-token'];
+      c.taskConfigs['factory-refine'].secrets = ['refine-token'];
+    });
+    const apply = factory(dir, 'apply');
+    expect(apply.code, apply.err).toBe(0);
+    const objects = ['taskconfig', 'envprovider', 'ticketsource', 'reviewsource'].flatMap(
+      (kind) => {
+        const listed = JSON.parse(fleet(dir, 'list', kind, '--json').stdout);
+        return (Array.isArray(listed) ? listed : listed.items).map((o: any) => ({
+          kind: o.kind,
+          name: o.metadata.name,
+          labels: o.metadata.labels,
+          spec: o.spec,
+        }));
+      },
+    );
+    const rendered = JSON.stringify(
+      { toml: readFileSync(join(dir, '.fleet/fleet.toml'), 'utf8'), objects },
+      null,
+      2,
+    )
+      .replaceAll(process.execPath, '/NODE')
+      .replaceAll(dir, '/WORKSPACE')
+      .replaceAll(ROOT, '/FLEET_FACTORY');
+    await expect(rendered).toMatchFileSnapshot('./fixtures/user-token-render.json');
+  });
+});
