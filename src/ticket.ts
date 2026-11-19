@@ -179,6 +179,20 @@ function mergeGate(cr: J, spec: SourceSpec, ticket: TicketView): MergeGate | nul
 }
 
 export function reconcile(req: J): J {
+  const plan = ticketPlan(req);
+  return settling(plan.status) ? followOnly(plan) : plan;
+}
+
+function settling(status: J | undefined): boolean {
+  return status?.closedSeenAt != null && status.phase !== 'Dropped' && !status.change?.merged;
+}
+
+function followOnly(plan: J): J {
+  const { creates, patches, amends, effects, ...kept } = plan;
+  return kept;
+}
+
+function ticketPlan(req: J): J {
   const me = req.object;
   const obs = req.observations ?? {};
   const now = Number(req.now ?? 0);
