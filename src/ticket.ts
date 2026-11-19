@@ -30,6 +30,7 @@ import {
 } from './util.ts';
 
 const POLL_MS = 60_000;
+const CLOSED_GRACE_MS = 10 * 60_000;
 const LABEL_NEEDS = 'factory:needs-decision';
 const LABEL_REFINED = 'factory:refined';
 const LABEL_READY = 'factory:ready';
@@ -196,6 +197,20 @@ function mergeGate(cr: J, spec: SourceSpec, ticket: TicketView): MergeGate | nul
 }
 
 export function reconcile(req: J): J {
+  const plan = ticketPlan(req);
+  return settling(plan.status) ? followOnly(plan) : plan;
+}
+
+function settling(status: J | undefined): boolean {
+  return status?.closedSeenAt != null && status.phase !== 'Dropped' && !status.change?.merged;
+}
+
+function followOnly(plan: J): J {
+  const { creates, patches, amends, effects, ...kept } = plan;
+  return kept;
+}
+
+function ticketPlan(req: J): J {
   const me = req.object;
   const obs = req.observations ?? {};
   const now = Number(req.now ?? 0);
@@ -221,14 +236,18 @@ export function reconcile(req: J): J {
     change: st.change ?? null,
     release: st.release ?? null,
     reported: st.reported ?? null,
+    closedSeenAt: st.closedSeenAt ?? null,
     conditions: st.conditions ?? [],
   };
   const plan: J = { status, notBefore: now + POLL_MS };
 
   if (status.change?.merged) return watch(me, obs, spec, status, plan, now);
 
+  const labelled = !!ticket && ticket.labels.includes(spec.board.intakeLabel);
+  const open = labelled && ticket!.state === 'open';
+  if (open) status.closedSeenAt = null;
   const inScope =
-    ticket && ticket.state === 'open' && ticket.labels.includes(spec.board.intakeLabel);
+    open || (labelled && settlesClosedTicket(status, plan, buildTask, obs.change, now));
   if (!inScope) {
     status.phase = 'Dropped';
     status.conditions = [
@@ -404,6 +423,7 @@ function build(
     return plan;
   }
   const ready = gate.head;
+  if (ticket.state !== 'open' && status.mergeRequested !== ready) return plan;
   status.phase = 'Merging';
   status.conditions = [
     ...status.conditions,
@@ -426,6 +446,20 @@ function build(
     status.mergeRequested = ready;
   }
   return plan;
+}
+
+function settlesClosedTicket(
+  status: J,
+  plan: J,
+  buildTask: J | null,
+  change: J,
+  now: number,
+): boolean {
+  if (!buildTask || live(change)?.status?.state?.value === 'closed') return false;
+  status.closedSeenAt ??= now;
+  const dropAt = status.closedSeenAt + CLOSED_GRACE_MS;
+  plan.notBefore = Math.min(plan.notBefore, dropAt);
+  return now < dropAt;
 }
 
 function progressing(
