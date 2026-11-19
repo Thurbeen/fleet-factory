@@ -97,7 +97,11 @@ export function relayedComments(task: {
   return ids;
 }
 
-export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: Item[] }): string {
+export function buildBrief(
+  t: TicketView,
+  r: { decisions: Item[]; acceptance: Item[] },
+  existingChange: string | null = null,
+): string {
   return [
     `Build one refined ticket, test first, as one draft change.`,
     ``,
@@ -115,8 +119,7 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     ),
     ``,
     `Steps:`,
-    `1. Write the plan as the body of a draft change: open it with \`gh pr create --draft\`, label it`,
-    `   \`factory\`, and run \`fleet declare TASK --change-request URL\` at once.`,
+    ...openStep(existingChange),
     `2. For each acceptance criterion, write a failing end-to-end test first, commit it, and see it`,
     `   fail for the intended reason.`,
     `3. Implement until the tests pass. Follow the repository's own gate and rules.`,
@@ -128,6 +131,19 @@ export function buildBrief(t: TicketView, r: { decisions: Item[]; acceptance: It
     `   Never record a result while the change is a draft.`,
     `7. Then record: fleet result TASK --generation N --outcome shipped --output changeUrl='"URL"'`,
   ].join('\n');
+}
+
+function openStep(existingChange: string | null): string[] {
+  if (existingChange)
+    return [
+      `1. This ticket already has its change: ${existingChange}. Do not open another one. Check out`,
+      `   its branch, run \`fleet declare TASK --change-request ${existingChange}\` at once, and continue`,
+      `   from where it stands.`,
+    ];
+  return [
+    `1. Write the plan as the body of a draft change: open it with \`gh pr create --draft\`, label it`,
+    `   \`factory\`, and run \`fleet declare TASK --change-request URL\` at once.`,
+  ];
 }
 
 export function watchBrief(

@@ -178,10 +178,12 @@ stateDiagram-v2
 
 The build Task stays on its change until Fleet marks it ready, or it is merged or closed;
 only then does it record its result. While it builds, `status.change` holds the change's URL
-and current head. If the Task concludes while its change is a draft whose head checks failed,
-the plugin amends the same Task once per head, naming the failing checks. A draft head
-unchanged for `stages.build.stuckAfterMs` (default 4 hours, from Fleet's `head.firstSeenAt`),
-or a build Task that concluded with no change, moves the Ticket to `Stuck`, with condition
+and current head. A build Task created again for a Ticket that already holds a change, after
+its Task was deleted, is briefed to continue that change and to open no other. If the Task
+concludes while its change is a draft whose head checks failed, the plugin amends the same
+Task once per head, naming the failing checks. A draft head unchanged for
+`stages.build.stuckAfterMs` (default 4 hours, from Fleet's `head.firstSeenAt`), or a build
+Task that concluded with no change, moves the Ticket to `Stuck`, with condition
 `Progressing=False` and reason `ChangeStuck` or `NoChange`. A stuck Ticket amends, deletes
 and posts nothing; a new head returns it to `Building`.
 

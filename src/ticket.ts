@@ -318,7 +318,7 @@ function build(
       taskManifest(me, 'build', {
         configRef: { name: spec.build.taskConfig },
         workspace: [`git+${spec.repository.url}#${spec.repository.branch}`],
-        brief: buildBrief(ticket, status.refinement),
+        brief: buildBrief(ticket, status.refinement, status.change?.url ?? null),
         dispatch: hasCapacity(obs.buildQueue, stageName(me, 'build'), spec.maxActive.build),
         outputs: { changeUrl: { type: 'string', required: true } },
         ...(spec.build.readyPolicy ? { forge: { draft: { policy: spec.build.readyPolicy } } } : {}),
