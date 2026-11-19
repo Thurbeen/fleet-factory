@@ -38,9 +38,11 @@ explains each stage and gate.
 5. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
    rules. Give the reviewer App Contents write on the repository, next to its Pull requests
-   access, so GitHub counts its approval. GitHub also allows resolving a thread only with
-   write access to the repository; see [Resolving its threads](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#resolving-its-threads).
-   Without it, a person resolves each reviewer thread before the change can merge.
+   access, so GitHub counts its approval. Until
+   [fleet-reviewer#15](https://github.com/Thurbeen/fleet-reviewer/issues/15) ships, a person
+   resolves each reviewer thread before the change can merge. Once it ships, the reviewer
+   resolves its own fixed threads, which GitHub allows only with write access to the
+   repository; see [Resolving its threads](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#resolving-its-threads).
 
 6. Create the three labels a person sets:
 
