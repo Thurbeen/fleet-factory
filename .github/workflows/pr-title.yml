@@ -10,12 +10,47 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-title-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: pr-title-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+  queue: max
 
 jobs:
+  supersede:
+    name: Supersede older heads
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel this workflow's active runs of an older head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh api "repos/$REPO/actions/runs" -X GET \
+            -f event=pull_request -f branch="$HEAD_REF" -f per_page=100 \
+            | jq -r --arg workflow "$WORKFLOW" --arg repo "$HEAD_REPO" \
+                --arg head "$HEAD_SHA" --argjson run "$RUN_ID" '.workflow_runs[]
+                | select(.name == $workflow and .head_repository.full_name == $repo)
+                | select(.head_sha != $head and .id < $run)
+                | select(.status | IN("queued", "pending", "waiting", "requested", "in_progress"))
+                | "\(.id) \(.head_sha)"' \
+            | while read -r id sha; do
+                if gh run cancel "$id" --repo "$REPO"; then
+                  echo "cancelled run $id of head $sha"
+                else
+                  echo "could not cancel run $id of head $sha"
+                fi
+              done
+
   pr-title:
     name: PR Title
+    if: github.event.action != 'edited' || github.event.changes.title != null
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
