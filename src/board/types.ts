@@ -2,9 +2,12 @@ export type BoardRef = { kind: string; project: string; tokenEnv?: string; apiUr
 
 export type TicketSummary = { key: string; number: number; url: string; labels: string[] };
 
+export type Person = { login: string; type: string; permission: string };
+
 export type CommentView = {
   id: number;
   author: string;
+  type: string;
   permission: string;
   body: string;
   factory: string | null;
@@ -14,6 +17,7 @@ export type TicketView = TicketSummary & {
   title: string;
   body: string;
   state: 'open' | 'closed';
+  author: Person;
   comments: CommentView[];
 };
 

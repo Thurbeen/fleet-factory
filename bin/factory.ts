@@ -138,9 +138,30 @@ function appTokenArgs(app: GitHubApp): string[] {
   ];
 }
 
-function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, string> {
+function gitCredentialEnv(forgeOrigins: string[]): Record<string, string> {
+  const entries = [
+    ['credential.helper', ''],
+    ...forgeOrigins.map((origin) => [`credential.${origin}.helper`, '!gh auth git-credential']),
+  ];
+  return Object.fromEntries([
+    ['GIT_CONFIG_COUNT', String(entries.length)],
+    ...entries.flatMap(([key, value], i) => [
+      [`GIT_CONFIG_KEY_${i}`, key],
+      [`GIT_CONFIG_VALUE_${i}`, value],
+    ]),
+  ]);
+}
+
+function appGhEnv(
+  app: GitHubApp,
+  path: string,
+  dir: string,
+  forgeOrigins: string[],
+): Record<string, string> {
   return {
     PATH: `${APP_GH_DIR}:${path}`,
+    GIT_TERMINAL_PROMPT: '0',
+    ...gitCredentialEnv(forgeOrigins),
     GH_CONFIG_DIR: join(dir, 'github-app-gh'),
     FACTORY_NODE: process.execPath,
     FACTORY_GITHUB_APP_ID: String(app.appId),
@@ -150,11 +171,46 @@ function appGhEnv(app: GitHubApp, path: string, dir: string): Record<string, str
   };
 }
 
+function identities(name: string, s: Secret): string[] {
+  const source = s.githubApp
+    ? `GitHub App ${s.githubApp.appId}`
+    : s.command
+      ? `command ${JSON.stringify(s.command)}`
+      : `file ${s.file}`;
+  return [`secret ${name}`, source];
+}
+
+function refuseSharedReviewer(config: J, secrets: Record<string, Secret>) {
+  const reviewName = config.stages?.review?.token?.secret;
+  if (!secrets[reviewName]) return;
+  const review = new Set(identities(reviewName, secrets[reviewName]));
+  const build = config.stages?.build?.taskConfig;
+  const buildSide: [string, string][] = [
+    ['board.token', config.board?.token?.secret],
+    ['forge.token', config.forge?.token?.secret],
+    ...(config.taskConfigs?.[build]?.secrets ?? []).map(
+      (n: string, i: number): [string, string] => [`taskConfigs.${build}.secrets[${i}]`, n],
+    ),
+  ];
+  for (const [path, name] of buildSide) {
+    if (!secrets[name]) continue;
+    const shared = identities(name, secrets[name]).find((id) => review.has(id));
+    if (shared)
+      throw new ConfigError(
+        `stages.review.token and ${path} resolve to the same ${shared}; GitHub never counts an approval by a change's author, so give the reviewer its own identity`,
+      );
+  }
+}
+
 function render(config: J, local: J, dir: string, pluginCwd: string) {
   const secrets: Record<string, Secret> = local.secrets ?? {};
   const scoped = (name: string) => `${config.name}-${name}`;
   const provider = (secret: string) => scoped(`secret-${secret}`);
   validateSecrets(secrets);
+  refuseSharedReviewer(config, secrets);
+  const forgeOrigins = [
+    ...new Set<string>((config.repositories ?? []).map((r: J) => new URL(r.url).origin)),
+  ];
   const labels = { [MANAGED]: String(config.name) };
   const boardSecret = secretRef(config.board?.token, 'board.token', secrets);
   const forgeSecret = secretRef(config.forge?.token, 'forge.token', secrets);
@@ -176,7 +232,7 @@ function render(config: J, local: J, dir: string, pluginCwd: string) {
     const path = tc.env?.PATH ?? process.env.PATH ?? '';
     const env = {
       ...tc.env,
-      ...(apps.length ? appGhEnv(secrets[apps[0]].githubApp!, path, dir) : {}),
+      ...(apps.length ? appGhEnv(secrets[apps[0]].githubApp!, path, dir, forgeOrigins) : {}),
     };
     if (Object.keys(env).length) spec.env = env;
     if (frozen.length) spec.envFrom = frozen.map((r: string) => ({ name: provider(r) }));
