@@ -421,11 +421,11 @@ with reason `ApprovalNotCounted`.
 GitHub lets an account resolve a pull request conversation only when it opened the pull
 request or has write access to the repository
 ([GitHub Docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/reviewing-changes-in-pull-requests/commenting-on-a-pull-request)).
-The GraphQL reference for `resolveReviewThread` names no App permission, and an App that
-could post reviews was refused with `Resource not accessible by integration`. Give the
-reviewer identity write access to the repository, then check it with one resolve before
-relying on unattended merges. The factory never changes the App; granting the access is the
-operator's step.
+For the reviewer App, that write access is the Contents write the previous paragraph gives
+it. The GraphQL reference for `resolveReviewThread` names no App permission, and an App that
+could post reviews was refused with `Resource not accessible by integration`, so check the
+grant with one resolve before relying on unattended merges. The factory never changes the
+App; granting the access is the operator's step.
 
 ### One apply
 
