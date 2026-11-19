@@ -365,7 +365,7 @@ function build(
   if (!ready) return plan;
   const unresolved = unresolvedThreads(cr);
   if (unresolved !== 0) {
-    const message = `${unresolved} unresolved threads on ${url} at ${ready}; feature.ticket="${me.spec.key}"`;
+    const message = `unresolved threads: ${unresolved} on ${url} at ${ready}; feature.ticket="${me.spec.key}"`;
     progressing(me, status, 'False', 'ThreadsUnresolved', message, now);
     return plan;
   }
