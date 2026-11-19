@@ -189,7 +189,8 @@ stuck Ticket amends, deletes and posts nothing; a new head returns it to `Buildi
 
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
-A dropped change keeps its branch; the factory deletes nothing on the forge.
+A dropped change keeps its branch; the factory deletes nothing on the forge. A ticket labelled
+again after it was dropped starts a new change.
 
 ### Stage gates
 
