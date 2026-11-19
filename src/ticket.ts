@@ -156,11 +156,11 @@ function dispatchPatch(task: J, free: boolean): J[] {
   ];
 }
 
-function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null {
+function approvedAndPassed(cr: J, spec: SourceSpec, ticket: TicketView): string | null {
   const s = cr?.status ?? {};
   const head = s.head?.id;
   if (!head || s.state?.value !== 'open' || !s.everReady) return null;
-  if (s.head?.checks !== 'passed' || Number(s.threads?.unresolved ?? 1) !== 0) return null;
+  if (s.head?.checks !== 'passed') return null;
   const approver = spec.approver;
   if (!approver || ticket.labels.includes(spec.merge.holdLabel)) return null;
   const approved = (s.reviews ?? []).some(
@@ -169,6 +169,8 @@ function mergeReady(cr: J, spec: SourceSpec, ticket: TicketView): string | null 
   );
   return approved ? head : null;
 }
+
+const unresolvedThreads = (cr: J) => Number(cr?.status?.threads?.unresolved ?? 1);
 
 export function reconcile(req: J): J {
   const me = req.object;
@@ -359,8 +361,14 @@ function build(
   status.change = { url, head, merged: false };
   progressing(me, status, 'True', 'Ready', `${url} at ${head}`, now);
   status.phase = 'InReview';
-  const ready = mergeReady(cr, spec, ticket);
+  const ready = approvedAndPassed(cr, spec, ticket);
   if (!ready) return plan;
+  const unresolved = unresolvedThreads(cr);
+  if (unresolved !== 0) {
+    const message = `${unresolved} unresolved threads on ${url} at ${ready}; feature.ticket="${me.spec.key}"`;
+    progressing(me, status, 'False', 'ThreadsUnresolved', message, now);
+    return plan;
+  }
   status.phase = 'Merging';
   if (status.mergeRequested !== ready) {
     plan.effects = [
