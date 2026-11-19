@@ -27,7 +27,8 @@ explains each stage and gate.
 
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
-   rules.
+   rules. Give the reviewer App Contents write on the repository, next to its Pull requests
+   access, so GitHub counts its approval. It needs nothing more.
 
 4. Create the three labels a person sets:
 
