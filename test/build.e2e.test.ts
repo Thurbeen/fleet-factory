@@ -193,6 +193,16 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(mine(env)[1].text).toContain(NEXT);
   });
 
+  it('starts and amends nothing for a ticket closed while its change settles', () => {
+    const { env } = building();
+    conclude(env);
+    env.setTicket({ number: 1, state: 'closed', labels: ['factory', 'factory:ready'] });
+    env.setChange(11, { state: 'draft', head: failed(HEAD) });
+    env.sweep(3);
+    expect(phase(env)).not.toBe('Dropped');
+    expect(mine(env)).toHaveLength(0);
+  });
+
   it('amends neither a concluded Task on a draft head that did not fail nor a running one', () => {
     const { env } = building();
     env.setChange(11, { state: 'draft', head: failed(HEAD) });
