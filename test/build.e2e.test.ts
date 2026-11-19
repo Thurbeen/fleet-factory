@@ -39,6 +39,22 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(phase(env)).toBe('Building');
   });
 
+  it('briefs a re-created build Task onto the change its ticket already has', () => {
+    const { env, build } = building();
+    env.setChange(11, { state: 'open', head: { id: HEAD, checks: 'passed' } });
+    env.sweep(2);
+    env.result(build.metadata.name, { changeUrl: CHANGE });
+    env.rest();
+    env.ok('delete', 'task', build.metadata.name);
+    env.sweep(4);
+
+    const rebuilt = env.stageTask('build');
+    expect(rebuilt.metadata.uid).not.toBe(build.metadata.uid);
+    expect(rebuilt.spec.brief).toContain(CHANGE);
+    expect(rebuilt.spec.brief).not.toContain('gh pr create');
+    expect(rebuilt.spec.brief).toContain('--change-request ' + CHANGE);
+  });
+
   it('requests a squash auto-merge once the approver approved the head and checks passed', () => {
     const { env } = building();
     approve(env, { threads: { unresolved: 1 } });
