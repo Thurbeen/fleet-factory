@@ -29,7 +29,7 @@ function workspace() {
       fleetBin: FLEET,
       runtime: { kind: 'fake', dir: 'fake' },
       secrets: {
-        'board-token': { command: [helper], as: 'GITHUB_TOKEN' },
+        'author-token': { command: [helper], as: 'GITHUB_TOKEN' },
         'reviewer-token': { command: ['/bin/echo', 'reviewer-secret'], as: 'REVIEWER_TOKEN' },
         'observability-token': { file: join(dir, 'obs.json') },
       },
@@ -86,7 +86,7 @@ function operatorPlugins(root: string, factories: string[]) {
     `args = ["${PLUGIN}"]`,
     `cwd = "${root}"`,
     'tasks = "own"',
-    `envFrom = ${envFrom('board-token')}`,
+    `envFrom = ${envFrom('author-token')}`,
     '',
     '[plugins."fleet-reviewer"]',
     `program = "${process.execPath}"`,
@@ -124,9 +124,9 @@ describe.skipIf(!FLEET)('factories on an operator-owned Fleet config', () => {
     const plan = factory(factories.acme, 'plan');
     expect(plan.code, plan.err).toBe(0);
     expect(plan.out).toContain(`missing [plugins.fleet-factory] in ${operator}`);
-    expect(plan.out).toContain('envFrom = [{ name = "acme-secret-board-token" }]');
+    expect(plan.out).toContain('envFrom = [{ name = "acme-secret-author-token" }]');
     expect(plan.out).toContain('create TaskConfig/acme-factory-build');
-    expect(plan.out).toContain('create EnvProvider/acme-secret-board-token');
+    expect(plan.out).toContain('create EnvProvider/acme-secret-author-token');
     expect(plan.out).toContain('create TicketSource/acme-app');
 
     const refused = factory(factories.acme, 'apply');
@@ -171,7 +171,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     expect(plan.code, plan.err).toBe(0);
     expect(plan.out).toContain('create TicketSource/app');
     expect(plan.out).toContain('create TaskConfig/acme-factory-build');
-    expect(plan.out).toContain('create EnvProvider/acme-secret-board-token');
+    expect(plan.out).toContain('create EnvProvider/acme-secret-author-token');
     expect(existsSync(join(dir, '.fleet/fleet.toml'))).toBe(false);
 
     const apply = factory(dir, 'apply');
@@ -182,7 +182,9 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     const source = JSON.parse(fleet(dir, 'get', 'ticketsource', 'app').stdout);
     expect(source.spec.board).toMatchObject({ kind: 'github-issues', tokenEnv: 'GITHUB_TOKEN' });
     expect(source.metadata.labels['fleet-factory/managed']).toBe('acme');
-    const provider = JSON.parse(fleet(dir, 'get', 'envprovider', 'acme-secret-board-token').stdout);
+    const provider = JSON.parse(
+      fleet(dir, 'get', 'envprovider', 'acme-secret-author-token').stdout,
+    );
     expect(JSON.stringify(provider)).not.toContain('board-secret');
 
     const again = factory(dir, 'plan');
@@ -259,7 +261,7 @@ describe.skipIf(!FLEET)('factory plan and apply against a real fleet', () => {
     expect(resolveProvider()).toEqual({ REVIEWER_TOKEN: 'ghs_minted_2' });
 
     const reviewSource = JSON.parse(fleet(dir, 'get', 'reviewsource', 'app').stdout);
-    expect(reviewSource.spec.forge.login).toBe('REVIEWER_LOGIN');
+    expect(reviewSource.spec.forge.login).toBe('REVIEWER_APP_SLUG[bot]');
 
     const review = JSON.parse(fleet(dir, 'get', 'taskconfig', 'acme-factory-review').stdout);
     expect(review.spec.env.GH_CONFIG_DIR).toBe(join(dir, '.fleet/github-app-gh'));
@@ -286,7 +288,7 @@ const sharedIdentities: [string, (dir: string) => void, string][] = [
     'the same App',
     (dir) =>
       edit(join(dir, 'factory.local.json'), (l) => {
-        l.secrets['board-token'] = appSecret(dir, '123', 'GITHUB_TOKEN');
+        l.secrets['author-token'] = appSecret(dir, '123', 'GITHUB_TOKEN');
         l.secrets['reviewer-token'] = appSecret(dir, '123', 'REVIEWER_TOKEN');
       }),
     'board.token',
@@ -300,7 +302,7 @@ const sharedIdentities: [string, (dir: string) => void, string][] = [
     'the same command',
     (dir) =>
       edit(join(dir, 'factory.local.json'), (l) => {
-        l.secrets['reviewer-token'] = { ...l.secrets['board-token'], as: 'REVIEWER_TOKEN' };
+        l.secrets['reviewer-token'] = { ...l.secrets['author-token'], as: 'REVIEWER_TOKEN' };
       }),
     'board.token',
   ],
@@ -338,17 +340,42 @@ describe.skipIf(!FLEET)('build and review identities stay apart', () => {
   );
 });
 
+describe.skipIf(!FLEET)('the template', () => {
+  it('plans cleanly with the example local file, two Apps and no token in a TaskConfig', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fleet-factory-template-'));
+    writeFileSync(join(dir, 'factory.json'), readFileSync(TEMPLATE, 'utf8'));
+    const local = JSON.parse(
+      readFileSync(resolve(ROOT, 'template/factory.local.example.json'), 'utf8'),
+    );
+    local.fleetBin = FLEET;
+    local.runtime = { kind: 'fake', dir: 'fake' };
+    local.fleetReviewer = STUB_REVIEWER;
+    writeFileSync(join(dir, 'factory.local.json'), JSON.stringify(local));
+    const plan = factory(dir, 'plan');
+    expect(plan.code, plan.err).toBe(0);
+    expect(plan.out).toContain('create EnvProvider/acme-secret-author-token');
+    expect(plan.out).toContain('create EnvProvider/acme-secret-reviewer-token');
+    expect(plan.out).toContain('create TaskConfig/acme-factory-build');
+  });
+});
+
 describe.skipIf(!FLEET)('user-token configs keep their rendering', () => {
   it('plans command and file secrets to the same objects and plugin TOML as before', async () => {
     const dir = workspace();
     edit(join(dir, 'factory.local.json'), (l) => {
       l.fleetReviewer = STUB_REVIEWER;
+      l.secrets['board-token'] = l.secrets['author-token'];
+      delete l.secrets['author-token'];
       l.secrets['build-token'] = { command: ['/bin/echo', 'build-secret'], as: 'GH_TOKEN' };
       l.secrets['refine-token'] = { file: join(dir, 'refine.json') };
     });
     edit(join(dir, 'factory.json'), (c) => {
+      c.board.token = { secret: 'board-token' };
+      c.forge.token = { secret: 'board-token' };
+      c.stages.review.login = 'REVIEWER_LOGIN';
       c.taskConfigs['factory-build'].secrets = ['build-token'];
       c.taskConfigs['factory-refine'].secrets = ['refine-token'];
+      delete c.taskConfigs['factory-review'].secrets;
     });
     const apply = factory(dir, 'apply');
     expect(apply.code, apply.err).toBe(0);

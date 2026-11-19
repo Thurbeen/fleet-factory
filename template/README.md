@@ -12,8 +12,8 @@ explains each stage and gate.
 - A `fleet` binary from [Thurbeen/thurbox](https://github.com/Thurbeen/thurbox/releases)
   v3.1.0 or later.
 - A checkout of fleet-reviewer that knows `forge.login`.
-- `gh`, which the example `board-token` source runs.
-- A GitHub token or App that can write issues and pull requests on the target repository.
+- `gh`, which the factory's sessions run through a wrapper.
+- Two GitHub Apps installed on the target repository; see [Identities](#identities).
 
 ## Fill it
 
@@ -22,8 +22,7 @@ explains each stage and gate.
 2. Copy `factory.local.example.json` to `factory.local.json`, which git ignores. It holds what
    differs per machine: the `fleet` binary, the fleet-reviewer checkout, the Fleet runtime,
    and the source of each secret, a file or a command with absolute paths.
-   Add `"as": "REVIEWER_TOKEN"` to `reviewer-token`; see [Secrets](#secrets). For a GitHub
-   App as the reviewer, use a `githubApp` source; see [the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#a-github-app-as-the-reviewer).
+   Fill each App's ids and private key path; see [Identities](#identities).
 
 3. On the target repository, require a pull request with one approval, resolved threads and
    status checks, and allow auto-merge. The factory starts no build until it reads these
@@ -38,13 +37,31 @@ explains each stage and gate.
    gh label create factory:hold -R OWNER/app
    ```
 
+### Identities
+
+The factory acts as two GitHub Apps, so GitHub credits each write to the factory, not to
+you, and counts the reviewer's approval:
+
+| App | Needs on the repository | Acts for |
+| --- | --- | --- |
+| The author App | Write issues, pull requests and contents; read the branch rules | The board, the merge gate, the refine and build sessions, `git push` |
+| The review App | Write contents, so GitHub counts its approval; review pull requests | fleet-reviewer and the review session |
+
+Set `stages.review.login` to the review App's login, `REVIEWER_APP_SLUG[bot]`. `factory plan`
+refuses a config where the review App is also the author. The
+[identity section of the design](https://github.com/Thurbeen/fleet-factory/blob/main/docs/design.md#the-factorys-identity)
+explains how each use gets a fresh token.
+
 ### Secrets
 
 | Secret | Used by |
 | --- | --- |
-| `board-token` | The plugin, as its board and forge token |
-| `reviewer-token` | fleet-reviewer, from a `file` or a `githubApp` source |
+| `author-token` | The plugin, as its board and forge token, and the refine and build TaskConfigs |
+| `reviewer-token` | fleet-reviewer and the review TaskConfig |
 | `observability-token` | The watch TaskConfig, `factory-watch` |
+
+A secret's source is a `githubApp`, a `command` or a `file`. A `command` such as
+`gh auth token` still works, but then the factory acts as that login.
 
 `as` names the environment variable a source sets. Every secret needs `as`, except a `file`
 source that only a TaskConfig reads.

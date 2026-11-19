@@ -1,10 +1,29 @@
 {
   "fleetBin": "/ABSOLUTE/PATH/fleet",
   "fleetReviewer": "/ABSOLUTE/PATH/fleet-reviewer",
-  "runtime": { "kind": "runtime-mux" },
+  "runtime": {
+    "kind": "runtime-mux"
+  },
   "secrets": {
-    "board-token": { "command": ["/ABSOLUTE/PATH/gh", "auth", "token"], "as": "GITHUB_TOKEN" },
-    "reviewer-token": { "file": "/ABSOLUTE/PATH/reviewer-env.json" },
-    "observability-token": { "command": ["/ABSOLUTE/PATH/pass", "show", "obs"], "as": "OBS_TOKEN" }
+    "author-token": {
+      "githubApp": {
+        "appId": "AUTHOR_APP_ID",
+        "installationId": "AUTHOR_INSTALLATION_ID",
+        "keyFile": "/ABSOLUTE/PATH/author-app.private-key.pem"
+      },
+      "as": "GITHUB_TOKEN"
+    },
+    "reviewer-token": {
+      "githubApp": {
+        "appId": "REVIEWER_APP_ID",
+        "installationId": "REVIEWER_INSTALLATION_ID",
+        "keyFile": "/ABSOLUTE/PATH/reviewer-app.private-key.pem"
+      },
+      "as": "REVIEWER_TOKEN"
+    },
+    "observability-token": {
+      "command": ["/ABSOLUTE/PATH/pass", "show", "obs"],
+      "as": "OBS_TOKEN"
+    }
   }
 }
