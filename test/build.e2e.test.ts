@@ -112,6 +112,10 @@ describe.skipIf(!FLEET)('the build stage stays on its change until it is ready',
     expect(mine(env)).toHaveLength(1);
     expect(mine(env)[0].text).toContain(HEAD);
     expect(mine(env)[0].text).toContain('CI');
+    expect(mine(env)[0].text).not.toContain('only once Fleet marks the change ready');
+    expect(mine(env)[0].text).toContain(
+      'Fleet marks a draft ready only after you record your result',
+    );
     expect(mine(env)[0].reason).toContain(`feature.ticket="${TICKET}"`);
 
     env.sweep(3);
