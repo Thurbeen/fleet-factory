@@ -38,7 +38,7 @@ describe.skipIf(!FLEET)('review threads on an approved change, through a real fl
     approve(env, { threads: { unresolved: 2 } });
     expect(phase(env)).toBe('InReview');
     expect(progressing(env)).toMatchObject({ reason: 'ThreadsUnresolved' });
-    expect(progressing(env).message).toContain('2 unresolved threads');
+    expect(progressing(env).message).toContain('unresolved threads: 2');
     expect(progressing(env).message).toContain(`feature.ticket="${PROJECT}#1"`);
     expect(env.merges()).toHaveLength(0);
 
@@ -47,7 +47,7 @@ describe.skipIf(!FLEET)('review threads on an approved change, through a real fl
     expect(progressing(env).reason).not.toBe('ThreadsUnresolved');
   });
 
-  it('does not blame threads while the head waits for its approval or its checks', () => {
+  it('does not blame threads while the head waits for its checks', () => {
     const { env } = building();
     env.setChange(11, {
       state: 'open',
