@@ -201,8 +201,9 @@ export function failedChecksAmendment(
 ): string {
   return [
     `The checks failed on head ${head}.`,
-    `Your change ${url} is still a draft. Fix the failing checks with new pushes, and record a`,
-    `result only once Fleet marks the change ready, or it is merged or closed.`,
+    `Your change ${url} is still a draft. Fix the failing checks with new pushes, then record`,
+    `your result for this generation once the checks pass.`,
+    `Fleet marks a draft ready only after you record your result.`,
     ``,
     ...(failing.length
       ? failing.map((c) => `- ${c.name ?? 'check'}${c.url ? `: ${c.url}` : ''}`)
