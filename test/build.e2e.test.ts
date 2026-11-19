@@ -70,6 +70,28 @@ describe.skipIf(!FLEET)('build and merge through a real fleet', () => {
     expect(rebuilt.spec.brief).not.toContain(CHANGE);
   });
 
+  it('starts a new change for a ticket labelled again after it was dropped', () => {
+    const { env } = building();
+    env.setTicket({ number: 1, labels: [] });
+    env.rest();
+    env.sweep(4);
+    expect(phase(env)).toBe('Dropped');
+
+    env.setTicket({ number: 1, labels: ['factory', 'factory:refined', 'factory:ready'] });
+    env.sweep(3);
+    env.result(env.stageTask('refine').metadata.name, {
+      state: 'refined',
+      decisions: [{ id: 'd1', text: 'Columns: date, total.', area: 'scope', by: 'maintainer' }],
+      acceptance: [{ id: 'a1', text: 'Exports as CSV.', signal: 'csv_exports_total', slo: '99%' }],
+      questions: [],
+    });
+    env.sweep(4);
+
+    const rebuilt = env.stageTask('build');
+    expect(rebuilt.spec.brief).toContain('gh pr create');
+    expect(rebuilt.spec.brief).not.toContain(CHANGE);
+  });
+
   it('requests a squash auto-merge once the approver approved the head and checks passed', () => {
     const { env } = building();
     approve(env, { threads: { unresolved: 1 } });
