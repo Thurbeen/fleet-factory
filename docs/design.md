@@ -189,7 +189,12 @@ and posts nothing; a new head returns it to `Building`.
 
 A ticket edit while `Refining` or `NeedsDecision` amends the refine Task. Removing the
 `factory` label, or closing the ticket, deletes the open stage Tasks and drops the `Ticket`.
-A dropped change keeps its branch; the factory deletes nothing on the forge.
+A change's own merge often closes its ticket before Fleet shows the merge, so a ticket
+closed while its change is not closed is held for ten minutes: a merge in that time moves it
+to `Merged`, and it requests no new auto-merge while held. A ticket closed while auto-merge
+is requested on its change's current head is kept until the change merges or closes, since
+the change's own merge closes it. A dropped change keeps its branch; the factory deletes
+nothing on the forge.
 
 ### Stage gates
 
