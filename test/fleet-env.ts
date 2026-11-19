@@ -117,6 +117,13 @@ export class Env {
     }
   }
 
+  rest() {
+    const path = join(this.root, 'fake', 'state.json');
+    const state = JSON.parse(readFileSync(path, 'utf8'));
+    for (const session of Object.values<any>(state.sessions ?? {})) session.atRest = true;
+    writeFileSync(path, JSON.stringify(state));
+  }
+
   backdateHeads(ms: number) {
     const dir = join(this.root, 'data/objects', 'ChangeRequest');
     for (const f of readdirSync(dir)) {
