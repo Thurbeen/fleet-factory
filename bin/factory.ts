@@ -181,24 +181,32 @@ function identities(name: string, s: Secret): string[] {
 }
 
 function refuseSharedReviewer(config: J, secrets: Record<string, Secret>) {
-  const reviewName = config.stages?.review?.token?.secret;
-  if (!secrets[reviewName]) return;
-  const review = new Set(identities(reviewName, secrets[reviewName]));
-  const build = config.stages?.build?.taskConfig;
+  const taskConfigSecrets = (taskConfig: string): [string, string][] =>
+    (config.taskConfigs?.[taskConfig]?.secrets ?? []).map(
+      (n: string, i: number): [string, string] => [`taskConfigs.${taskConfig}.secrets[${i}]`, n],
+    );
+  const reviewSide: [string, string][] = [
+    ['stages.review.token', config.stages?.review?.token?.secret],
+    ...taskConfigSecrets(config.stages?.review?.taskConfig).filter(
+      ([, n]) => secrets[n]?.githubApp,
+    ),
+  ];
   const buildSide: [string, string][] = [
     ['board.token', config.board?.token?.secret],
     ['forge.token', config.forge?.token?.secret],
-    ...(config.taskConfigs?.[build]?.secrets ?? []).map(
-      (n: string, i: number): [string, string] => [`taskConfigs.${build}.secrets[${i}]`, n],
-    ),
+    ...taskConfigSecrets(config.stages?.build?.taskConfig),
   ];
-  for (const [path, name] of buildSide) {
-    if (!secrets[name]) continue;
-    const shared = identities(name, secrets[name]).find((id) => review.has(id));
-    if (shared)
-      throw new ConfigError(
-        `stages.review.token and ${path} resolve to the same ${shared}; GitHub never counts an approval by a change's author, so give the reviewer its own identity`,
-      );
+  for (const [reviewPath, reviewName] of reviewSide) {
+    if (!secrets[reviewName]) continue;
+    const review = new Set(identities(reviewName, secrets[reviewName]));
+    for (const [path, name] of buildSide) {
+      if (!secrets[name]) continue;
+      const shared = identities(name, secrets[name]).find((id) => review.has(id));
+      if (shared)
+        throw new ConfigError(
+          `${reviewPath} and ${path} resolve to the same ${shared}; GitHub never counts an approval by a change's author, so give the reviewer its own identity`,
+        );
+    }
   }
 }
 

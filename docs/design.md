@@ -326,9 +326,10 @@ The factory acts on GitHub as two GitHub Apps, never as the operator's login:
 | The review App | fleet-reviewer and the review stage | `stages.review.token`, the review TaskConfig's `secrets` |
 
 GitHub never counts an approval by a change's author, so one App for both could never merge.
-`factory plan`, and so `apply` and `up`, refuses a config whose `stages.review.token` and any
-of `board.token`, `forge.token` or the build TaskConfig's secrets name the same secret, the
-same App `appId`, or the same `command` or `file`. The error names both paths. The refine
+`factory plan`, and so `apply` and `up`, refuses a config where `stages.review.token`, or a
+`githubApp` secret of the review TaskConfig, and any of `board.token`, `forge.token` or the
+build TaskConfig's secrets name the same secret, the same App `appId`, or the same `command`
+or `file`. The error names both paths. The refine
 stage opens no change, so it is not checked.
 
 Each reference may name a `githubApp` secret source, which holds no token. It names the App,
